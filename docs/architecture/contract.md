@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v3）
+# dsh-terminal-panel · 架构与契约（v4）
 
-> 状态：**v3（v2 定稿 + 3 处内部一致化小修）** — 已吸收 scout T1 取证结论 `docs/research/dsh-plugin-apis.md`；Lead 已对 5 项争议裁决；v3 按 tester 审计结论统一「帧预算口径 / removed 语义 / 冻结导出表」。
+> 状态：**v4（v3 冻结 + 附录补丁）** — 已吸收 scout T1 取证结论、Lead 五项裁决、tester 审计一致化（v3）；v4 只补充 backend 最终回执暴露的 3 条文档偏差（terminal `truncated` 语义、非 live root 降级帧、`computeTerminalDelta` k===0 不标 lossy）与 tester C1/C2/C5 的定案，不改代码。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -12,7 +12,7 @@
 
 1. **传输不变**：exact HTTP 路由 `POST /terminal-panel/rpc`（同机 popout 先例成立）。`ctx.connection.rpc` 仅记为「备选/后续简化」；backend 不重做（Lead 裁决 1）。
 2. **前台 bash 过程输出不可得**（无第三方持有 `ShellExecution` 句柄）→ 改三层：a) `ctx.shell.execute` 只读 tee 为 best-effort（`bashCapture`，失败即 `availability.bashLive` 降级）；b) 始终用 `tools/execute` 记录 Run（status/command，`exec.agent` 可选，缺失不猜）；c) `tools/result` 的终态输出补内容，`outputMode:'final-only'`，UI 标「仅终态」（Lead 裁决 2）。
-3. **`terminals.read` 语义定案**：`offset` = 距最新多少行（0=尾页）；`end=totalLines-offset`、`start=max(0,end-count)`；`lineBegin/lineEnd` 同坐标系；绝对行号 = `totalLines - lineBegin`；增量按 `totalLines` 差值取尾页并去重；`truncated` = scrollback 裁剪/单页字节截断（不是「没取完」）。§12.6 的 ASSUMPTION 已替换为 FACT（Lead 裁决 3）。
+3. **`terminals.read` 语义定案**：`offset` = 距最新多少行（0=尾页）；`end=totalLines-offset`、`start=max(0,end-count)`；`lineBegin/lineEnd` 同坐标系；绝对行号 = `totalLines - lineBegin`；增量按 `totalLines` 差值取尾页并去重；`truncated` = scrollback 裁剪/单页字节截断（不是「没取完」）。§12.6 的 ASSUMPTION 已替换为 FACT（Lead 裁决 3）。**（v4 修正：terminal `truncated` 还包含「窗口未覆盖最旧行」= `page.truncated || lineEnd < totalLines`，见 §4.3/§5.2）**
 4. **客户端没有 `host.call` / `styles.insert`**（那是动态 Cordis 包的闭包符号）；静态 bundle 只能 `require` 平台模块表 11 个键（含 `react`），样式自己 `document.head.appendChild(<style data-plugin-css>)` 并负责移除（Lead 裁决 4）。
 5. **元数据补齐**：`icon.svg` + `locale/{zh,en}.json`（`meta.title/description`）；`package.json` 增 `exports["./icon"]`、`exports["./locale/*.json"]`、`files`、`dsh.manifestVersion: 1`。
 6. **轮询自适应**：活跃 250ms / 空闲 1000–1500ms / 页面隐藏暂停（不再是恒定 250ms，空闲时降频）。
@@ -29,6 +29,8 @@
 |---|---|---|
 | v1 | 2026-10-26 | 初稿：双端边界、HTTP RPC 契约、数据模型、状态机、降级矩阵、测试契约、脚手架。 |
 | v2 | 2026-10-26 | 吸收 scout T1 全部结论：包清单修正（`manifestVersion`/`engines`/`exports ./icon`/`./locale`、`immediately` 语义、`dsh.client.inject` 语义）；客户端运行环境纠偏（平台表 11 键、无 `host.call`/`styles.insert`、样式自注入）；`terminals.read` 行坐标定案；前台 bash 改三层（过程输出不可得，`final-only`）；事件补充 `tools/post-execute` 与 `tools/result`；轮询自适应；`conversation.view` props/合并顺序精确化；元数据（icon/locale）交付；§12 五项裁决 + 已裁决限制；安装文档升级为证据版。 |
+| v3 | 2026-10-26 | tester 审计驱动的一致化：①帧预算三级单一语义（§4.3）；②`removed` 语义二分（§4.2 语义 5）；③§11.1/§11.2 冻结导出表；附 HIGH/LOW 缺陷归属与 §9 配置漂移对齐。 |
+| v4 | 2026-10-26 | 附录补丁（仅文档）：①`computeTerminalDelta` 的 **k<0** 才 lossy（k===0 是正常探尾，不标 lossy）；②terminal `truncated` = 输出未完整覆盖（`page.truncated \|\| lineEnd < totalLines`），不是分页未取完；③非 live root 会话返回**降级帧**而非 `session-not-found`（仅 sessionId 语法非法才 coded 错误）；④tester C1/C2/C5 定案，C3/C4 标 closed。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -49,6 +51,16 @@
 | LOW | backend | `lib/host/frame.mjs` `boundFrame` **1 字节边界**（`≤ limit` 放行 / `> limit` 裁剪的判定与 `headBytes` 不切半个码点的边界需一致） | `tests/host/frame.test.mjs` 增加 limit±1 与多字节码点边界用例 |
 
 **v3 顺带对齐的实现-契约漂移（无行为变化）**：`hello.limits.idlePollHintMs` 当前实现未发（client 用常量 1000ms）→ 契约改标**可选**；`maxFrameBytes` 实际夹取范围 1024–1048576（契约原写上限 262144）→ 已按实现更正；`terminalTailOverlapLines`/`finalOutputBytes` 并非 Host 配置项（前者是 `DEFAULT_OVERLAP_LINES=32` 常量，后者是 `parseToolResultText` 的默认参数 32768）→ 已从 §9 配置表移到实现常量说明。
+
+### v4 附录补丁（2026-10-26，backend 最终回执 + tester C1/C2/C5）
+
+| # | 项 | v4 定案 | 落点 |
+|---|---|---|---|
+| A1 | `computeTerminalDelta` 的 k 分支 | **k < 0 才 lossy + 重置基线**（scrollback 裁剪/回退）；**k === 0 是每轮空闲都会发生的正常探尾行，不标 lossy、不改基线**（标 lossy 会让面板永久显示缺口）；k > 0 = 尾页增量 + 尾重叠去重 | §5.2、§11.1 |
+| A2 | terminal `truncated` 语义（tester C2） | 实现为 `truncated = page.truncated \|\| lineEnd < totalLines`：**表示该会话输出未被完整覆盖**（scrollback 曾被裁剪，或本次窗口未覆盖到最旧行），**不是「本帧没发完 / 分页未取完」**；client **不得据此循环翻页**（历史阅读靠本地缓冲 + 手动上翻 `offset += count`） | §4.3、§5.1、§5.2、F18 |
+| A3 | 非 live root 会话（tester C1） | **降级帧优先于 `session-not-found`**：sessionId 合法但无 live Agent → `ok:true` 降级帧（`sessions` 仅 root、`availability.tree.available=false`、`runs:[]`）；**只有 sessionId 语法非法/缺失**才返回 `bad-request` 类 coded 错误（`session-not-found` 保留给「语法合法但服务端无此会话」的极端情况，不作为常规路径） | §4.4、§8 |
+| A4 | tester C5（`conversation.view` inject props） | **已核对一致**：v2 F28 已定 `inject` 返回 `{}`（或自定义字段），保留 props 由 renderer 以 owner props 注入且优先级最高；实现与契约一致，无需改动 | F28 |
+| A5 | tester C3（`removed` 语义）/ C4（帧预算口径） | **closed**：v3 已分别定案（§4.2 语义 5、§4.3 三级预算），本轮无新增改动 | §4.2、§4.3 |
 
 ---
 
@@ -116,7 +128,7 @@
 |---|---|---|---|
 | F16 | `ctx.jobs`：`list(caller?)`、`get(id,caller?)`、`readAt(id, from, caller?)`、`kill(id,caller?,reason?)`、`wait`、`remove`；`JobView{ id, kind, label, owner?, status:'running'\|'stopping'\|'completed'\|'killed'\|'failed', progress?, detail?, startedAt, finishedAt?, output:{total,earliest,spillPaths?} }`；`readAt` 用**绝对字节偏移**，返回 `{ chunks, next, lossy }`，`next` 当不透明游标；`from` 落在 chunk 内会重发整 chunk；`caller` 是 **owner 围栏**（传目标 sessionId） | `[FACT]` live inspect `Service(jobs)`；scout §4.3 | 已核对（补 `next` 不透明、caller 围栏语义） |
 | F17 | `ctx.shell`：`execute(spec)` → `ShellExecution`；`observed.stdout/stderr.readFrom(fromByte)` → `{text,nextOffset,lossy,spillPath?}`（字节）；`readOutput()` 是消费式；`status:'running'\|'completed'\|'killed'`。**shell 是「一个上下文一个实现，重复提供会 throw」的抽象服务**，第三方无法替换实现，也拿不到别的工具创建的句柄（前台 bash 句柄只存在于工具内部） | `[FACT]` live inspect `Service(shell)`；scout §4.2（含 `dsh-shell` 服务描述原文） | 修正（v1 的「包装 `ctx.shell.execute` 按字节 tail」降级为 best-effort，见 §5.2） |
-| F18 | `ctx.terminals`：`list(owner: Agent)`、`read(owner,id,{offset?,count?})`、`kill(owner,id,reason?)`、`hasOwnerActivity(owner)`；**`read` 语义（逐行核实现）**：`offset` = 距最新行数（0=尾页），`totalLines` = 当前 scrollback 行数，`end = totalLines - offset`，`start = max(0, end - count)`，返回 `lineBegin = offset`、`lineEnd = offset + 实际返回行数`（同一坐标系），绝对行号 `absoluteBegin = totalLines - lineEnd`、`absoluteEnd = totalLines - lineBegin`；`truncated` = scrollback 曾被裁剪 或 单页被 `maxReadBytes` 截断（**不是**「没取完」），分页完整性看 `lineEnd >= totalLines`；默认 scrollback 10000 行 / 4 MiB | `[FACT]` live inspect `Service(terminals)`；asar:`dsh-terminal-bash/lib/index.js:582-611`；scout §4.4 | 修正（v1 §12.6 的「绝对行号」ASSUMPTION 作废，见 §12.6） |
+| F18 | `ctx.terminals`：`list(owner: Agent)`、`read(owner,id,{offset?,count?})`、`kill(owner,id,reason?)`、`hasOwnerActivity(owner)`；**`read` 语义（逐行核实现）**：`offset` = 距最新行数（0=尾页），`totalLines` = 当前 scrollback 行数，`end = totalLines - offset`，`start = max(0, end - count)`，返回 `lineBegin = offset`、`lineEnd = offset + 实际返回行数`（同一坐标系），绝对行号 `absoluteBegin = totalLines - lineEnd`、`absoluteEnd = totalLines - lineBegin`；backend 实际 `truncated = page.truncated \|\| lineEnd < totalLines` → **表示输出未被完整覆盖**（scrollback 裁剪，或窗口未及最旧行），v4 定案见 §4.3/§5.2；默认 scrollback 10000 行 / 4 MiB | `[FACT]` live inspect `Service(terminals)`；asar:`dsh-terminal-bash/lib/index.js:582-611`；scout §4.4 | 修正（v1 §12.6 的「绝对行号」ASSUMPTION 作废，见 §12.6；v4 补 truncated 精确语义） |
 | F19 | `ctx.subagents.listDescendants(rootSessionId)` → 每项 `{kind:'child', id, activity:'running'\|'inactive', mode, label?, hasChildren, parentId, depth}` 或 `{kind:'diagnostic', id, reason}`（diagnostic 行**没有** activity）；根读失败整体 reject；`ctx.agentTeams.listMembers(agent)` 需 **live Agent**，`tryMembership(agent)` 不抛异常 | `[FACT]` live inspect `Service(subagents/agentTeams)`；scout §4.5 | 已核对（补 diagnostic 无 activity、tryMembership） |
 | F20 | `ctx.agents.get(id)`、`list()`、`roots()`；`ctx.sessions.get/list`；`terminals.*` 的 `owner` 是 **Agent 对象**（不是 SessionId）；`jobs.owner` 是 SessionId | `[FACT]` live inspect `Service(agents/sessions/terminals)`；scout §4.6/§11 | 新增（v1 只在映射表里提了一句） |
 | F21 | 事件 `tools/execute` 是 **waterfall**：`(exec: ToolDispatchExecution, next) => Promise<ToolExecutionResult>`；`exec.agent` **可选**；无标签监听器（Host 根 ctx 注册）能收到**所有 agent** 的调用；监听器必须 `return await next()`，只允许改 `exec.signal` | `[FACT]` live inspect `Event(tools/execute)`；asar:`dsh-scope/README.zh.md:42,75`；scout §4.1 | 已核对（补 exec.agent 可选、必须 next） |
@@ -364,7 +376,7 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 | 调度顺序 | `focusRunId` 优先 → `status==='running'` 优先 → `startedAt` 升序；每轮每 Run 最多取 `min(PER_RUN_BUDGET_BYTES(16384), 剩余预算)`（`planReads` 决定读多少） |
 | 单 chunk 上限 | 单条 `text` ≤ 16384 字节（`splitChunks` 切块，不切半个码点）；`limitDelta` 负责单 Run 内截断 |
 | 超长 Run 数 | running > `maxRuns`(32) 时只返回前 32 个 running + 最近 `completedLimit` 条终态（UI 显示「另有 N 个未显示」） |
-| 标记语义 | `truncated` = 本帧没发完（可续读，**不丢数据**）；`lossy` = 数据已丢（不可恢复）。两者不可混用 |
+| 标记语义 | `truncated`（bash tee / job 通道）= 本帧没发完（可续读，**不丢数据**）；`lossy` = 数据已丢（不可恢复）。两者不可混用。**terminal 专用（v4）**：`TerminalDelta.truncated = page.truncated \|\| lineEnd < totalLines`，表示**该会话输出未被完整覆盖**（scrollback 裁剪，或窗口未及最旧行），**不是「本帧没发完 / 分页未取完」；client 不得据此循环翻页**（历史靠本地缓冲 + 手动上翻） |
 | `budgetMode?` | 可选字段 `'text' \| 'frame'`：`'text'`（缺省）= 本帧未触发整帧 JSON 兜底；`'frame'` = 本帧被 Tier2/3 按整帧 JSON 口径裁剪。**当前实现未发该字段（省略即 `'text'`），client 不得依赖；backend 可在 Tier2/3 裁剪时补发（v3 允许，向后兼容）** |
 | `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次） |
 | 饥饿保护 | Tier1 首条 Run 永远放行；`focusRunId` 在 `planReads` 中优先分配预算（放大弹窗/活动列不被饿死） |
@@ -379,7 +391,8 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 | `too-large` | 413 | 请求体 >4 KiB | 同上（不应发生） |
 | `bad-request` | 200 | params 校验失败 | 丢弃该帧，控制台告警一次，不打断面板 |
 | `unknown-method` | 200 | 未实现方法 | 丢弃 |
-| `session-not-found` | 200 | sessionId 无对应 live root | 空态「会话不可用」+ 重试 |
+| `session-not-found` | 200 | **仅**「sessionId 语法合法但服务端确实无此会话」的极端情况（v4：常规「无 live root」不走此错误） | 空态「会话不可用」+ 重试 |
+| （无错误，`ok:true`） | 200 | **非 live root 会话（v4 定案）**：sessionId 合法但 `ctx.agents.get(sessionId)` 无 live Agent → **降级帧**（`sessions` 仅 root、`availability.tree.available=false`、`runs:[]`），而不是 `session-not-found` | 面板显示空态/降级提示（「该会话已不在活动注册表」），其余来源照常 |
 | `run-not-found` | 200 | kill 目标不在可见树/已移除 | toast「该任务已结束或不可见」 |
 | `run-not-stoppable` | 200 | 来源不支持停止（前台 bash 无句柄） | toast「该来源不支持停止」 |
 | `source-unavailable` | 200 | 指定来源服务缺失 | 对应 chip 置灰 + tooltip 原因 |
@@ -451,7 +464,7 @@ interface TerminalDelta {
   absBegin: number           // totalLines - lineEnd（绝对行号，含）
   absEnd: number             // totalLines - lineBegin（绝对行号，不含）
   nextCursor: number         // = totalLines（下轮基线）
-  truncated: boolean         // scrollback 被裁剪 或 单页被 maxReadBytes 截断
+  truncated: boolean         // terminal 专用（v4）：page.truncated || lineEnd < totalLines = 输出未被完整覆盖（非「分页未取完」）
   lossy: boolean             // 基线回退/裁剪导致缺口
 }
 
@@ -512,7 +525,7 @@ interface Availability {
 |---|---|---|---|---|
 | **bash 前台** | `tools/execute` waterfall 记录 `{callId,name,arguments,agent?}` → Run 立即以 `status:'running'` 出现，`outputMode:'final-only'`（F21；waterfall 必须 `next()`） | **best-effort tee**：`bashCapture=true` 时尝试装饰 `ctx.shell.execute` 拿到返回的 `ShellExecution`，按其 `observed.stdout.readFrom(cursor)` 增量；成功 → 该 Run 升级 `outputMode:'live'`，`availability.bashLive.available=true`；失败 → 只保留 final-only，`availability.bashLive={available:false,reason:'no-shell-handle',code:'error'}`（F17：服务是一个上下文一个实现，第三方通常拿不到，属预期降级） | `tools/result`（emit，deep-frozen，不污染链）或 `tools/post-execute`（waterfall）的 `ToolExecutionResult`：提取 `content` 中 `type:'text'` 块（无则 `value` 的 JSON 摘要，≤32 KiB）→ 一次性作为 `stdout` 块，`detail:'final-only'`（F22/F23） | `ShellExecution.kill()`（仅 tee 成功时）；否则 `run-not-stoppable` |
 | **job** | 每个可见会话 `ctx.jobs.list(sessionId)`，按 jobId 去重合并（F16） | `ctx.jobs.readAt(jobId, cursor, ownerSessionId)`；`next` 不透明游标写回；`lossy` 透传；`from` 在 chunk 中间会重发整 chunk → 按 `chunk.at + 已知长度` 去重（F16/scout §11.4） | `status` 终态 + `detail`/`progress`；`output.total` 作 totals | `ctx.jobs.kill(jobId, ownerSessionId, 'cancelled by the user')` |
-| **terminal** | 对可见会话逐个 `ctx.terminals.list(agent)`（owner 是 **Agent**，先 `ctx.agents.get(sessionId)`，F18/F20） | 每轮 `read(agent, id, { offset:0, count:max(k,1) })`，`k = totalLines_new - cursor_prev`（min 1：PTY 用 `\r` 重写当前行）；文本按行尾重叠去重；`lineEnd >= totalLines` 才是取完；上翻历史用 `offset += count`（服务端只给增量，历史由 client 本地缓冲） | `status.kind==='exited'` → exitCode 0 ? completed : failed（signal 记 detail） | `ctx.terminals.kill(agent, id, 'cancelled by the user')` |
+| **terminal** | 对可见会话逐个 `ctx.terminals.list(agent)`（owner 是 **Agent**，先 `ctx.agents.get(sessionId)`，F18/F20） | 每轮 `read(agent, id, { offset:0, count:max(k,1) })`，`k = totalLines_new - cursor_prev`：**k > 0** → 尾页增量 + 尾重叠去重；**k === 0** → 正常「空闲探尾」（PTY 可能用 `\r` 重写当前行）：不追加、**不标 lossy**、基线不变；**k < 0** → scrollback 裁剪/回退：`lossy:true` + 重置基线并给当前尾页。历史阅读靠本地缓冲 + 手动上翻 `offset += count`（服务端只给增量） | `status.kind==='exited'` → exitCode 0 ? completed : failed（signal 记 detail） | `ctx.terminals.kill(agent, id, 'cancelled by the user')` |
 
 归属与树：
 
@@ -687,7 +700,7 @@ interface ViewState {
 | `terminals` 缺失 | 不采集 | `availability.terminals=false` | 「终端」chip 置灰 |
 | `shell` 缺失 / tee 失败 | **预期降级**（F17） | 不 tee | `availability.bashLive={available:false, reason:'no-shell-handle'}`；`availability.bash` 仍 available（final-only 可用） | 前台 bash 列显示「仅终态」徽标；不影响列出现 |
 | `subagents`/`agentTeams` 缺失或被拒 | 树发现失败 | 只返回 root | `availability.tree=false`；`sessions=[root]` | 会话范围只剩当前会话 + 提示「无法发现子会话」 |
-| root Agent 不在 live registry | `ctx.agents.get(sessionId)` 空 | tools 侧 Run 仍可见 | terminals/jobs 聚合降级；`tree` 记原因 | 面板可用，终端/任务 chip 提示「该会话已不在活动注册表」 |
+| root Agent 不在 live registry | `ctx.agents.get(sessionId)` 空 | **v4：返回降级帧（`ok:true`，不报错）**：`sessions` 仅 root、`availability.tree.available=false`（reason 记「session has no live agent」）、`runs:[]`；terminals/jobs 聚合自然为空 | 降级帧 | 面板显示空态/降级提示「该会话已不在活动注册表」；不弹错误、不重试风暴 |
 | 某会话 terminals/jobs 查询抛错 | 单会话失败 | 跳过该会话 | 该会话标记 reasons（不影响其它） | 该会话条目不显示对应来源 |
 | job 输出窗口淘汰 | `readAt` 返回 `lossy` | 从保留头重发 | 通道 `lossy:true` | 输出插「…（已丢失 N 字节）」，不弹错 |
 | terminal scrollback 裁剪 | `totalLines` 回退 / `truncated:true` | 重置基线并给当前尾页 | `TerminalDelta.lossy:true` | 插「…（较早输出已被终端 scrollback 裁剪）」，不弹错 |
@@ -795,7 +808,7 @@ interface ViewState {
 | | `tailLinesOf` | `(text: string, lines?: number /* 默认 32 */) => string` | 取尾部 N 行 |
 | | `dedupeTailOverlap` | `(prevTail: string, incoming: string, overlapLines?: number /* 默认 32 */) => { text: string; overlapLines: number }` | 行尾重叠去重；**必须保留行内 `\n`**（HIGH 缺陷回归点） |
 | | `planTerminalRead` | `(prev: { totalLines: number } \| null, totalLines: number, pageLines?: number /* 默认 400 */) => { offset: number; count: number; mode: 'initial'\|'delta'\|'probe'\|'reset' }` | 行读取计划（`offset` = 距最新行数） |
-| | `computeTerminalDelta` | `(prev: { totalLines: number; tail: string }, page: { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean }, overlapLines?: number /* 默认 32 */) => { delta: TerminalDelta; nextBaseline: { totalLines: number; tail: string } }` | k=totalLines 差；k<=0→lossy+重置；k>0→尾页 + 去重 |
+| | `computeTerminalDelta` | `(prev: { totalLines: number; tail: string }, page: { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean }, overlapLines?: number /* 默认 32 */) => { delta: TerminalDelta; nextBaseline: { totalLines: number; tail: string } }` | k=totalLines 差；**k<0 → lossy + 重置基线**；**k===0 → 正常探尾，不标 lossy、基线不变**（v4）；k>0 → 尾页 + 尾重叠去重 |
 | | `applyTerminalRead` | `(window: { totalLines: number; tail: string }, page: object, overlapLines?: number) => { delta: TerminalDelta; window: object }` | compute + 推进窗口 |
 | | `windowCursor` | `(window: { totalLines?: number }) => number` | 行基线游标 |
 | | `TERMINAL_PAGE_LINES` / `MAX_DELTA_LINES` / `DEFAULT_OVERLAP_LINES` | `400` / `10000` / `32` | 常量（冻结值） |
@@ -973,7 +986,8 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 ### 13.3 tester（T5）v2/v3 增补
 
 - 按 **§11.1 / §11.2 冻结表**对齐导出类用例（模块→导出名→签名）；表外实现内部函数不测。
-- 新增必测：`parseToolResultText`、`mapToolResultStatus`、`computeTerminalDelta`（k>0/k<=0/lineEnd<totalLines/overlap 去重）、`dedupeTailOverlap`、`planTerminalRead`（mode 四态）、`mergePoll` 的 final-only 与 terminal 缺口场景。
+- 新增必测：`parseToolResultText`、`mapToolResultStatus`、`computeTerminalDelta`（**k>0 / k===0 不 lossy / k<0 lossy+重置** / overlap 去重 / terminal `truncated = page.truncated || lineEnd < totalLines` 语义）、`dedupeTailOverlap`、`planTerminalRead`（mode 四态）、`mergePoll` 的 final-only 与 terminal 缺口场景。
+- **v4 新增**：非 live root 会话应断言返回**降级帧**（`ok:true`、`sessions` 仅 root、`availability.tree.available=false`、`runs:[]`）而非 `session-not-found`；terminal 缺口用 `lossy`（k<0）而**不是** `truncated` 触发翻页。
 - **v3 预算用例**：Tier1 整 Run 跳过且首条放行；Tier2 兜底后被丢 Run 无 `nextCursors`；Tier3 被丢 Run 游标回退；`truncated:true` 时 `nextCursors` 不越过已交付字节（§4.3 六条不变量）。
 - **v3 removed 用例**：`removed` 立即删除；同一 run 随后到达不影响其它 run；`pruneRuns` 独立于 `removed`。
 - **HIGH/LOW 回归**：`terminal-window` 换行、`mergeRun` 终态单调、`boundFrame` 边界。
