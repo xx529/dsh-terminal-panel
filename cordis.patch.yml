@@ -1,0 +1,14 @@
+# dsh-terminal-panel · bundle patch layer
+#
+# 一行 Host 插件：包根入口 lib/index.js 是 Host 半端（ESM：export { name, inject, apply }）。
+# 浏览器半端由 package.json 的 dsh.client 声明提供（./client → lib/client.js），
+# 由宿主模块系统按需 materialize，无需在此声明。
+#
+# 默认配置见 docs/architecture/contract.md §9；需要覆盖时取消下面 config 的注释。
+- insert:
+    - id: terminal-panel
+      name: dsh-terminal-panel
+      # config:
+      #   pollHintMs: 250
+      #   maxFrameBytes: 65536
+      #   collapseDelayMs: 10000

@@ -1,0 +1,25 @@
+# 依赖与构建产物（本仓库不装依赖；运行期由 profile 的 node_modules 提供宿主包）
+node_modules/
+pnpm-lock.yaml
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# 系统/编辑器
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# 测试与覆盖率产物
+coverage/
+.nyc_output/
+tests/**/__snapshots__/*.snap
+
+# 设计导出：只跟踪 v4 验收基线（e7b0e68d…，A–F 六板 PNG），其余目录是过程导出
+.figma/assets/*/
+!.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/
+
+# 本地临时
+.tmp/
+*.local.md
