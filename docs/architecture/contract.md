@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v2 定稿）
+# dsh-terminal-panel · 架构与契约（v3）
 
-> 状态：**v2 定稿**（已吸收 scout T1 取证结论 `docs/research/dsh-plugin-apis.md`；Lead 已对 5 项争议裁决）
+> 状态：**v3（v2 定稿 + 3 处内部一致化小修）** — 已吸收 scout T1 取证结论 `docs/research/dsh-plugin-apis.md`；Lead 已对 5 项争议裁决；v3 按 tester 审计结论统一「帧预算口径 / removed 语义 / 冻结导出表」。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -31,6 +31,24 @@
 | v2 | 2026-10-26 | 吸收 scout T1 全部结论：包清单修正（`manifestVersion`/`engines`/`exports ./icon`/`./locale`、`immediately` 语义、`dsh.client.inject` 语义）；客户端运行环境纠偏（平台表 11 键、无 `host.call`/`styles.insert`、样式自注入）；`terminals.read` 行坐标定案；前台 bash 改三层（过程输出不可得，`final-only`）；事件补充 `tools/post-execute` 与 `tools/result`；轮询自适应；`conversation.view` props/合并顺序精确化；元数据（icon/locale）交付；§12 五项裁决 + 已裁决限制；安装文档升级为证据版。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
+
+### v3 小修记录（2026-10-26，tester 审计驱动；只改文档，不改代码）
+
+| # | 不一致 | v3 定案 | 落点 |
+|---|---|---|---|
+| 1 | 帧预算两套口径并存：§4.3 写「输出文本预算（不含 JSON 元信息）」，而实现 `buildPollFrame` 用输出文本口径、`boundFrame` 用整帧 JSON 体积 | **统一为三级预算、单一语义**：Tier1 = `maxFrameBytes` 的**输出文本字节**口径（主口径）；Tier2 = 同一 `maxFrameBytes` 的整帧 JSON 兜底（仅当 Tier1 通过但 JSON 仍超限时触发，属兜底而非第二口径）；Tier3 = 路由层 `maxResponseBytes`(262144) 整帧 JSON 硬上限。补 `truncated` 与 `nextCursors` 的一致性不变量（§4.3），并规定可选 `budgetMode` 字段 | §4.3、§4.5、§9 |
+| 2 | `removed` 语义自相矛盾：§4.2 语义 5 说「保留 5 分钟」，§11.2 说「删除 run 与 column」 | **二分**：`removed` = 服务端保留窗口过期（`completedLimit` 条 / `completedRetainMs`）或会话结束 → client **立即**删除本地 Run/Column/游标（**以 §11.2 为准**）；`completedRetainMs` 只用于「服务端仍保留、但已终态」的 Run 在客户端的**本地兜底淘汰**，与 `removed` 无冲突 | §4.2 语义 5、§11.2 |
+| 3 | 纯函数导出清单散落在两处、与实现漂移 | **冻结表**：§11.1 补「Host 纯模块导出冻结表」，§11.2 补「Client `__internals` 冻结表」；**此表冻结，改动需 Lead 批准**；与 `lib/host/*.mjs` 实际导出、`lib/client.js` 的 `__internals` 逐一核对一致 | §11.1、§11.2、§13.3 |
+
+**缺陷修复归属（v3 记录，代码不在本任务范围）**：
+
+| 级别 | 归属 | 缺陷 | 回归证据 |
+|---|---|---|---|
+| HIGH | backend | `lib/host/terminal-window.mjs` 行增量拼接/去重时**丢换行** | `tests/host/terminal-window.test.mjs` 增加「跨页拼接保留 `\n`」用例 |
+| HIGH | frontend | `lib/client.js` `mergeRun` **终态非单调**（终态 Run 收到旧/重复帧可能回退为 running） | `tests/client/merge-poll.test.mjs` 增加「终态后再收 running 帧保持终态」用例 |
+| LOW | backend | `lib/host/frame.mjs` `boundFrame` **1 字节边界**（`≤ limit` 放行 / `> limit` 裁剪的判定与 `headBytes` 不切半个码点的边界需一致） | `tests/host/frame.test.mjs` 增加 limit±1 与多字节码点边界用例 |
+
+**v3 顺带对齐的实现-契约漂移（无行为变化）**：`hello.limits.idlePollHintMs` 当前实现未发（client 用常量 1000ms）→ 契约改标**可选**；`maxFrameBytes` 实际夹取范围 1024–1048576（契约原写上限 262144）→ 已按实现更正；`terminalTailOverlapLines`/`finalOutputBytes` 并非 Host 配置项（前者是 `DEFAULT_OVERLAP_LINES=32` 常量，后者是 `parseToolResultText` 的默认参数 32768）→ 已从 §9 配置表移到实现常量说明。
 
 ---
 
@@ -265,7 +283,7 @@ interface HelloResult {
   hostTime: number                 // epoch ms，用于 client 计算服务端时钟偏移
   dshVersion?: string
   capabilities: { bash: boolean; jobs: boolean; terminals: boolean; tree: boolean }
-  limits: { maxFrameBytes: number; maxRuns: number; pollHintMs: number; idlePollHintMs: number }
+  limits: { maxFrameBytes: number; maxRuns: number; pollHintMs: number; idlePollHintMs?: number }
   availability: Availability
 }
 ```
@@ -309,7 +327,10 @@ interface PollResult {
 2. `output.*.chunks[].text` 是**新增的连续文本**（bash/job = 字节增量；terminal = 行增量），client 按到达顺序 append；每列本地保留 `scrollbackLines`(600) 行，超出丢头并记 `droppedLines`。
 3. 游标规则按来源分开（§5.2），**不得混用**：job 是绝对字节 `next`；terminal 是 `totalLines` 行基线；bash tee 是字节偏移。
 4. `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick 最多 3 次，之后等下一轮）。
-5. `removed` 中的 runId，client 保留「已完成」区 5 分钟（`completedRetainMs`）后丢弃；内存硬上限 200 条，超出按 finishedAt 淘汰最旧。
+5. **`removed` 语义（v3 定案，消除 v2 自相矛盾）**：
+   - `removed` = **服务端已从注册表移除**的 runId（来源：终态 Run 超出 `completedLimit`(50) 条或 `completedRetainMs`(300000ms) 保留窗口 → `store.prune()`；或会话结束/来源关闭）。**Client 收到后立即删除本地 `runs`/`columns`/`droppedLines`/游标**（以 §11.2 为准），**不做 5 分钟延时**，也不再进入「已完成」区展示。
+   - `completedRetainMs` **不用于** `removed`；它只用于 Client 的**本地兜底淘汰** `pruneRuns()`：对「服务端仍保留、且已终态」的 Run，超过 300000ms 或条数超过常量 `MAX_RETAINED_COMPLETED`(200) 时本地删除（用于长时间无帧 / 内存保护）。两者不冲突：收到 `removed` 优先立即删。
+   - 服务端保留窗口参数：`completedLimit`=50 条、`completedRetainMs`=300000ms（`retainCompletedMs`，`store.prune` 的实现）。
 6. `revision <= 本地已应用 revision` 的帧直接丢弃（乱序/重试）。
 7. `run.outputMode === 'final-only'` 的 Run 在终态前**没有输出块**；UI 在输出区显示「仅终态」占位（§12.7）。
 
@@ -326,16 +347,27 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 - terminal → `ctx.terminals.kill(ownerAgent, terminalId, 'cancelled by the user')`（owner 是 **Agent**，F18/F20）。
 - 用户 kill 与模型 kill 语义不同（沿用 job-controller 先例：模型完成通知照常送达）。
 
-### 4.3 帧预算与截断（服务端）
+### 4.3 帧预算与截断（服务端，v3 统一口径）
+
+**单一语义**：`maxFrameBytes` 是**一个**参数，主口径 = **输出文本字节**；整帧 JSON 只在两个兜底层使用，且都只是「同一帧的兜底裁剪」，不是第二套并行口径。三级管线按顺序执行，任一层裁剪都置 `truncated:true`：
+
+| 层 | 实现 | 口径 | 触发 | 裁剪方式 |
+|---|---|---|---|---|
+| Tier1（主口径） | `planReads` → `buildPollFrame` | **输出文本字节**累计 ≤ `maxFrameBytes`（默认 65536，配置夹取 1024–1048576） | 每帧都跑 | 逐 Run 累加输出文本字节；超预算的 Run **整条跳过**（不半截），排在前面的小 Run 仍可进入；**第一条 Run 永远放行**（避免大输出饿死整帧）；被跳过的 Run 记入 `dropped`，不写 `nextCursors` |
+| Tier2（同参数兜底） | `boundFrame(value, maxFrameBytes)` | **整帧 JSON 字节** ≤ 同一 `maxFrameBytes` | 仅当 Tier1 通过、但 JSON 元信息使整帧仍超限 | 从尾部**整 Run 丢弃**直到 ≤ 上限，置 `truncated:true`，并删除被丢 Run 的 `nextCursors`；调用方必须把这些 Run 退回注册表（`store.restore`）且**不提交游标**（下轮续读，绝不丢字节） |
+| Tier3（传输硬上限） | `route.boundResponseValue(value, maxResponseBytes = 262144, previousCursors)`（`maxResponseBytes` 是固定常量，不配置） | **整帧 JSON 字节** ≤ 262144 | 仅当 Tier2 后仍超限（异常大数据/元信息） | 从尾部整 Run 丢弃直到 ≤ 上限，置 `truncated:true`；被丢 Run 的 `nextCursors` **回退为客户端上一轮游标**（无上一轮则删除），保证客户端不跳过未交付字节 |
+
+其余规则：
 
 | 项 | 规则 |
 |---|---|
-| 输出文本预算 | 每帧 `≤ maxFrameBytes`（默认 65536）**输出文本字节约**；元信息 ≤ 8 KiB |
-| 调度顺序 | `focusRunId` 优先 → `status==='running'` 优先 → `startedAt` 升序；每轮每 Run 最多取 `min(16 KiB, 剩余预算)` |
-| 截断 | 预算耗尽即停；未读完的 Run 写进 `nextCursors`，`truncated:true` |
-| 单 chunk 上限 | 单条 `text` ≤ 16 KiB；超出服务端切块 |
+| 调度顺序 | `focusRunId` 优先 → `status==='running'` 优先 → `startedAt` 升序；每轮每 Run 最多取 `min(PER_RUN_BUDGET_BYTES(16384), 剩余预算)`（`planReads` 决定读多少） |
+| 单 chunk 上限 | 单条 `text` ≤ 16384 字节（`splitChunks` 切块，不切半个码点）；`limitDelta` 负责单 Run 内截断 |
 | 超长 Run 数 | running > `maxRuns`(32) 时只返回前 32 个 running + 最近 `completedLimit` 条终态（UI 显示「另有 N 个未显示」） |
-| 标记语义 | `truncated` = 本帧没发完（可续读）；`lossy` = 数据已丢（不可恢复）。两者不可混用 |
+| 标记语义 | `truncated` = 本帧没发完（可续读，**不丢数据**）；`lossy` = 数据已丢（不可恢复）。两者不可混用 |
+| `budgetMode?` | 可选字段 `'text' \| 'frame'`：`'text'`（缺省）= 本帧未触发整帧 JSON 兜底；`'frame'` = 本帧被 Tier2/3 按整帧 JSON 口径裁剪。**当前实现未发该字段（省略即 `'text'`），client 不得依赖；backend 可在 Tier2/3 裁剪时补发（v3 允许，向后兼容）** |
+| `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次） |
+| 饥饿保护 | Tier1 首条 Run 永远放行；`focusRunId` 在 `planReads` 中优先分配预算（放大弹窗/活动列不被饿死） |
 
 ### 4.4 错误码表
 
@@ -360,13 +392,13 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 | 状态 | 间隔 | 依据 |
 |---|---|---|
 | 有 running Run（活跃） | `pollHintMs = 250`（硬上限 300，下限 150） | 任务书「≤300ms 合帧」；scout §2.5 建议 |
-| 无 running Run（空闲） | `idlePollHintMs = 1000`（可调 1000–1500） | scout §2.5「空闲 1000–1500ms」 |
+| 无 running Run（空闲） | Client 常量 `IDLE_POLL_DEFAULT_MS = 1000`（1000–1500）；若 `hello.limits.idlePollHintMs` 存在则优先 | scout §2.5「空闲 1000–1500ms」；实现当前未发该 limit |
 | 页面隐藏（`document.visibilityState === 'hidden'`） | 暂停（`visible` 后立即 poll） | 省电/省帧 |
 | View 未激活 | 不轮询（slot 只渲染激活 view，F25） | 切 tab 自动停 |
 | 合帧 | 收到帧先入缓冲，最多每 60ms 用 rAF 提交一次 UI | ui-spec §7 |
 | 单飞 | 上一请求未结束不发下一个；`focusRunId` 用于放大弹窗所在列 | `[INF]` |
 | 卸载 | abort 在途请求、清 interval/rAF/监听 | F25 + practices |
-| 自限 | 单次响应 ≤ maxFrameBytes（65536），超长截断标记；不用宿主 300MiB 上限（F33） | F33 |
+| 自限 | 三级预算见 §4.3：Tier1 输出文本 ≤ `maxFrameBytes`(65536)，Tier2 整帧 JSON 兜底 ≤ 同一 `maxFrameBytes`，Tier3 传输硬上限 262144；不用宿主 300MiB 上限（F33） | F33 |
 
 ---
 
@@ -670,27 +702,35 @@ interface ViewState {
 
 ---
 
-## 9. 配置（Host 半端，`cordis.patch.yml` 可覆盖）
+## 9. 配置（Host 半端，`cordis.patch.yml` 可覆盖；v3 与 `lib/host/panel.mjs` `DEFAULT_CONFIG` 对齐）
 
-| key | 默认 | 含义 |
-|---|---|---|
-| `pollHintMs` | 250 | 活跃轮询间隔（Client 读 `hello.limits`）；150–300 |
-| `idlePollHintMs` | 1000 | 无 running Run 时的空闲间隔；1000–1500 |
-| `maxFrameBytes` | 65536 | 单帧输出文本预算（上限 262144） |
-| `maxRuns` | 32 | 单帧最多 Run 数 |
-| `completedLimit` | 50 | 服务端保留终态 Run 数 |
-| `completedRetainMs` | 300000 | Client 丢弃已移除终态的保留时长 |
-| `scrollbackLines` | 600 | Client 每列本地保留行数 |
-| `terminalPageLines` | 400 | 单次 `terminals.read` 行数（`count`） |
-| `terminalTailOverlapLines` | 32 | 行增量去重时的尾部重叠窗口 |
-| `initialTailBytes` | 32768 | 首见 Run（无游标）时给的尾部字节数 |
-| `collapseDelayMs` | 10000 | 自动收起延迟（ui-spec 固定 10s，配置仅供测试缩短） |
-| `bashCapture` | true | 是否尝试 shell tee（best-effort；失败只降级，不影响 final-only） |
-| `finalOutputBytes` | 32768 | final-only 终态输出截断上限 |
+| key | 默认 | 夹取范围（`resolveConfig`） | 含义 / 消费点 |
+|---|---|---|---|
+| `pollHintMs` | 250 | 150–300（整数） | 活跃轮询间隔（`hello.limits` 透出给 Client） |
+| `maxFrameBytes` | 65536 | 1024–1048576（整数） | **Tier1 输出文本字节** + **Tier2 整帧 JSON 兜底**的共同上限（口径见 §4.3）；`hello.limits` 透出 |
+| `maxRuns` | 32 | 1–64（整数） | 单帧最多 Run 数（`planReads` / `takeEntries` / `hello.limits`） |
+| `completedLimit` | 50 | 1–200（整数） | **服务端**保留终态 Run 条数（`store.prune`） |
+| `completedRetainMs` | 300000 | >0 的数字 | **服务端**终态保留时长（`store.prune`，映射 `retainCompletedMs`；**不用于 `removed` 的客户端展示语义**，见 §4.2 语义 5） |
+| `terminalPageLines` | 400 | 1–2000（整数） | 单次 `terminals.read` 的 `count`（`planTerminalRead`） |
+| `initialTailBytes` | 32768 | 0–1048576（整数） | 首见 Run（无游标）时给的尾部字节数（bash tee / job 首读） |
+| `bashCapture` | true | boolean | 是否尝试 shell tee（best-effort；失败只降级，不影响 final-only） |
+| `scrollbackLines` | 600 | — | **预留**：当前 Host 不消费（Client 使用自身常量 `SCROLLBACK_LINES=600`）；保留供未来 UI 协商，改它不改变当前行为 |
+| `collapseDelayMs` | 10000 | — | **预留**：当前 Host 不消费（Client 使用常量 `COLLAPSE_DELAY_MS=10000`，ui-spec 固定 10s）；保留供测试/未来协商 |
+
+以下不是 Host 配置（避免再次漂移）：
+
+| 常量 | 值 | 归属 | 说明 |
+|---|---|---|---|
+| `MAX_RESPONSE_BYTES` | 262144 | `lib/host/route.mjs` | Tier3 传输硬上限（整帧 JSON） |
+| `PER_RUN_BUDGET_BYTES` | 16384 | `lib/host/cursors.mjs` | 每 Run 单轮读取预算 |
+| `DEFAULT_OVERLAP_LINES` | 32 | `lib/host/terminal-window.mjs` | terminal 行增量尾重叠去重窗口 |
+| `TERMINAL_PAGE_LINES` | 400 | `lib/host/terminal-window.mjs` | 行读取页大小的默认值（可被 `terminalPageLines` 覆盖） |
+| `finalOutputBytes` | 32768 | `parseToolResultText(result, maxBytes=32768)` 的参数默认 | final-only 终态输出截断上限 |
+| Client 端常量 | `IDLE_POLL_DEFAULT_MS=1000`、`RPC_TIMEOUT_MS=5000`、`FRAME_COMMIT_MS=60`、`BACKOFF_MS=[250,500,1000,2000,5000]`、`COMPLETED_RETAIN_MS=300000`、`MAX_RETAINED_COMPLETED=200`、`SCROLLBACK_LINES=600`、`COLLAPSE_DELAY_MS=10000`、`FOLLOW_TOLERANCE_PX=4`、`MAX_RUNS=32` | `lib/client.js` | Client 内部常量（Host 不配置；`hello.limits` 只透出 `maxFrameBytes`/`maxRuns`/`pollHintMs`） |
 
 `routePath` **不做配置**（固定 `/terminal-panel/rpc`），避免双端漂移。
 
-`[ASSUMPTION]` Host 插件可以不导出 `Config` schema，`apply(ctx, config)` 收 patch 的 config 原样对象，插件内补默认值。验证：T6 装包后跑 `cordis_inspect_query` `Config.listConfigs`，若 loader 拒绝未知 config 则改 schemastery `Config`（v3 小修）。
+`[ASSUMPTION]` Host 插件可以不导出 `Config` schema，`apply(ctx, config)` 收 patch 的 config 原样对象，插件内补默认值。验证：T6 装包后跑 `cordis_inspect_query` `Config.listConfigs`，若 loader 拒绝未知 config 则改 schemastery `Config`（后续小修）。
 
 ---
 
@@ -708,59 +748,61 @@ interface ViewState {
 
 ## 11. 可测试性契约（tester 直接照此写用例）
 
-### 11.1 Host 纯函数（`lib/host/*.mjs`，node:test 直接 import）
+### 11.1 Host 纯模块导出 **冻结表**（v3 冻结，改动需 Lead 批准）
 
-```ts
-// classify.mjs
-export function classifyTool(name: string, args: unknown):
-  { kind: 'bash' | 'job' | 'terminal'; command?: string; cwd?: string } | null
-// 规则：name 含 'terminal' → terminal；name ∈ {'bash','pwsh','shell','exec'} → bash；
-// 以 'job_' 开头 → job；其余 null。args.command/cwd 存在则透传。
+> 冻结范围：`lib/host/{classify,tree,status,cursors,frame,terminal-window}.mjs`（纯逻辑、无 DSH/React 依赖，`node:test` 直接 `import`）。
+> 不冻结：`store.mjs`（有状态）、`panel.mjs` / `route.mjs`（集成）、`capture-*.mjs`（依赖 ctx）——由 `scripts/smoke-host.mjs` 与 `tests/host/{panel,assembly}.test.mjs` 覆盖。
+> 本表已与 `lib/host/**` 工作树实际 `export` 逐条核对（2026-10-26；含 backend 未提交的在途修改，以工作树为准）；tester 按「模块 → 导出名」对齐导出类用例。
 
-// tree.mjs
-export function mergeSessionTree(input: {
-  rootSessionId: string
-  rootName: string
-  descendants: SubagentDescendantListEntry[]
-  members: TeamMemberView[]
-}): SessionScope[]
-// 断言：root 首位 depth=0；队友优先于同 id 子代理；diagnostic 行跳过（不读 activity）；
-// depth/创建顺序稳定；accent: root='none'，subagent='subagent'，teammate='teammate'。
-
-// status.mjs
-export function mapShellStatus(v: { status: string; exitCode: number | null; signal: string | null }): RunStatus
-export function mapJobStatus(v: string): { status: RunStatus; stopping: boolean }
-export function mapTerminalStatus(v: { kind: string; exitCode?: number | null; signal?: string | null }): RunStatus
-export function mapToolResultStatus(v: { isError: boolean; error?: { message: string; info?: { code?: string } } }): RunStatus
-// mapToolResultStatus：isError=false → completed；isError=true 且 code 含 abort/cancel → killed；否则 failed。
-
-// cursors.mjs
-export function mergeChannel(prevCursor: number, read: { text: string; nextOffset: number; lossy: boolean }):
-  { chunks: OutputChunk[]; nextCursor: number; lossy: boolean; gapBefore: boolean }
-export function planReads(runs, cursors, budget: { maxBytes: number; maxRuns: number; focusRunId?: string }):
-  { order: string[]; perRunBudget: Record<string, number> }
-export function dedupeTailOverlap(prevTail: string, incoming: string, overlapLines?: number):
-  { text: string; overlapLines: number }
-// 断言：按行尾重叠去重（默认 32 行），不丢非重叠新行，空输入安全。
-// terminal 增量（v2 新增，必测）：
-export function computeTerminalDelta(prev: { totalLines: number; tail: string },
-  page: { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean },
-  overlapLines?: number): { delta: TerminalDelta; nextBaseline: { totalLines: number; tail: string } }
-// 断言：k=totalLines-prev.totalLines；k<=0（裁剪）→ lossy+重置基线；k>0 取尾页
-// 并用尾重叠去重；lineEnd<totalLines 才算「没取完」。
-
-// frame.mjs
-export function buildPollFrame(input: PollInput, cursors: Record<string, RunCursor>, budget: Budget):
-  { value: PollResult; nextCursors: Record<string, RunCursor> }
-export function boundFrame(value: PollResult, maxBytes: number): PollResult
-// bash final-only（v2 新增，必测）：
-export function parseToolResultText(result: { content?: { type: string; text?: string }[]; value?: unknown }):
-  { text: string; truncated: boolean }
-```
+| 模块 | 导出名 | 签名 / 返回 | 说明 |
+|---|---|---|---|
+| `classify.mjs` | `classifyTool` | `(name: string, args: unknown) => { kind:'bash'\|'job'\|'terminal'; command?: string; cwd?: string } \| null` | 规则：name 含 `terminal`→terminal；name ∈ `BASH_TOOL_NAMES`→bash；以 `job_` 开头→job；其余 null |
+| | `isRunShapedTool` | `(name: string) => boolean` | 是否是会被面板承载的工具 |
+| | `isBackgroundBash` | `(args: unknown) => boolean` | 是否是后台 bash（走 jobs） |
+| | `BASH_TOOL_NAMES` | `readonly string[]`（冻结值 `['bash','pwsh','shell','exec']`） | bash 工具名集合 |
+| | `RUN_TITLES` | `Record<RunKind, string>`（冻结对象） | 列头类型标签文案 |
+| `tree.mjs` | `mergeSessionTree` | `(input: { rootSessionId: string; rootName: string; descendants: SubagentDescendantListEntry[]; members: TeamMemberView[] }) => SessionScope[]` | root 首位 depth=0；队友优先于同 id 子代理；diagnostic 行跳过（不读 activity） |
+| | `scopeOf` | `(sessions: SessionScope[], sessionId: string) => SessionScope \| undefined` | 查会话作用域 |
+| | `markActivity` | `(sessions: SessionScope[], ownerSessionIds: Iterable<string>) => SessionScope[]` | 标 `hasActivity` |
+| | `treeHealth` | `(descendants: object[]) => { healthy: boolean; diagnostics: number }` | 树有 diagnostic 行 → 降级信号 |
+| `status.mjs` | `mapShellStatus` | `(v: { status: string; exitCode: number \| null; signal: string \| null }) => RunStatus` | shell 三态映射 |
+| | `shellDetail` | `(v: { exitCode?: number \| null; signal?: string \| null; timedOut?: boolean; aborted?: boolean }) => string \| undefined` | 失败/停止原因文本 |
+| | `mapJobStatus` | `(raw: string) => { status: RunStatus; stopping: boolean }` | job 五态映射 |
+| | `mapTerminalStatus` | `(v: { kind: string; exitCode?: number \| null; signal?: string \| null }) => RunStatus` | terminal 状态映射 |
+| | `terminalDetail` | `(v: { exitCode?: number \| null; signal?: string \| null }) => string \| undefined` | terminal 退出原因 |
+| | `isTerminalStatus` | `(status: string) => boolean` | `completed\|failed\|killed` |
+| | `mapToolResultStatus` | `(v: { isError: boolean; error?: { message?: string; info?: { code?: string } } }) => RunStatus` | final-only 终态：成功→completed；code 含 abort/cancel→killed；否则 failed |
+| `cursors.mjs` | `sliceFromBytes` | `(text: string, byteOffset: number) => string` | 按 UTF-8 字节偏移切片（不切半码点） |
+| | `tailBytes` | `(text: string, maxBytes: number) => { text: string; droppedBytes: number }` | 取尾部字节窗口 |
+| | `mergeChannel` | `(prevCursor: number, read: { text?: string; nextOffset?: number; lossy?: boolean }, at?: number) => { chunks: object[]; nextCursor: number; lossy: boolean; gapBefore: boolean }` | bash/stderr 字节增量 |
+| | `trimChunksFrom` | `(chunks: object[], from: number) => object[]` | 按 `byteStart` 去重（防 chunk 内重复） |
+| | `mergeJobRead` | `(prevCursor: number \| undefined, read: { chunks?: object[]; next?: number; lossy?: boolean }, at?: number) => { chunks: object[]; nextCursor: number; lossy: boolean; gapBefore: boolean }` | job 绝对字节增量（`next` 不透明） |
+| | `planReads` | `(runs: object[], cursors?: Record<string, object>, budget?: { maxBytes?: number; maxRuns?: number; focusRunId?: string }) => { order: string[]; perRunBudget: Record<string, number> }` | 本轮读哪些 Run、每 Run 字节预算（`PER_RUN_BUDGET_BYTES=16384`） |
+| | `splitChunks` | `(chunks: object[], maxChunkBytes?: number) => object[]` | 单 chunk 切块（默认 16384） |
+| | `limitDelta` | `(delta: object, maxBytes: number) => { delta: object; truncated: boolean }` | 单 Run 内截断，`truncated` 只在真截断时为 true |
+| | `PER_RUN_BUDGET_BYTES` | `16384`（常量） | 每 Run 单轮预算 |
+| | `TERMINAL_PAGE_LINES` / `DEFAULT_OVERLAP_LINES` / `createTerminalWindow` / `computeTerminalDelta` / `dedupeTailOverlap` / `lastLine` / `planTerminalRead` / `tailLinesOf` / `windowCursor` | 从 `terminal-window.mjs` re-export（见下） | 别名出口：`cursors.mjs` 也导出 terminal 行坐标工具 |
+| `frame.mjs` | `outputTextBytes` | `(output: object) => number` | Tier1 口径：输出文本字节总和 |
+| | `normalizeOutput` | `(output: object, fallbackAt?: number) => { stdout?, stderr?, job?, terminal? }` | 归一化增量块 |
+| | `buildPollFrame` | `(input: object, cursors?: Record<string, object>, budget?: { maxBytes?: number; maxRuns?: number }) => { value: object; nextCursors: Record<string, object>; dropped: string[]; droppedEntries: object[] }` | Tier1 主口径裁剪（整 Run 跳过、首条放行） |
+| | `boundFrame` | `(value: object, maxBytes: number) => object` | Tier2 兜底：整帧 JSON ≤ maxBytes，返回裁剪后的 `PollResult` |
+| | `boundFrameDetailed` | `(value: object, maxBytes: number) => { value: object; droppedRunIds: string[] }` | 同 Tier2，带被丢 Run 明细（panel 用它退回注册表） |
+| | `headBytes` | `(text: string, maxBytes: number) => { text: string; truncated: boolean }` | 保留头部字节、不切半码点；`truncated` 仅真截断 |
+| | `parseToolResultText` | `(result: { content?: Array<{ type?: string; text?: string }>; value?: unknown }, maxBytes?: number /* 默认 32768 */) => { text: string; truncated: boolean }` | final-only 终态文本：优先 text 块，否则 `value` JSON 摘要 |
+| | `textBytes` | re-export `store.mjs` 的 `(text: string) => number` | UTF-8 字节数 |
+| `terminal-window.mjs` | `createTerminalWindow` | `() => { totalLines: number; tail: string }` | terminal 行基线初值 |
+| | `lastLine` | `(text: string) => string` | 取最后一行（PTY `\r` 重写用） |
+| | `tailLinesOf` | `(text: string, lines?: number /* 默认 32 */) => string` | 取尾部 N 行 |
+| | `dedupeTailOverlap` | `(prevTail: string, incoming: string, overlapLines?: number /* 默认 32 */) => { text: string; overlapLines: number }` | 行尾重叠去重；**必须保留行内 `\n`**（HIGH 缺陷回归点） |
+| | `planTerminalRead` | `(prev: { totalLines: number } \| null, totalLines: number, pageLines?: number /* 默认 400 */) => { offset: number; count: number; mode: 'initial'\|'delta'\|'probe'\|'reset' }` | 行读取计划（`offset` = 距最新行数） |
+| | `computeTerminalDelta` | `(prev: { totalLines: number; tail: string }, page: { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean }, overlapLines?: number /* 默认 32 */) => { delta: TerminalDelta; nextBaseline: { totalLines: number; tail: string } }` | k=totalLines 差；k<=0→lossy+重置；k>0→尾页 + 去重 |
+| | `applyTerminalRead` | `(window: { totalLines: number; tail: string }, page: object, overlapLines?: number) => { delta: TerminalDelta; window: object }` | compute + 推进窗口 |
+| | `windowCursor` | `(window: { totalLines?: number }) => number` | 行基线游标 |
+| | `TERMINAL_PAGE_LINES` / `MAX_DELTA_LINES` / `DEFAULT_OVERLAP_LINES` | `400` / `10000` / `32` | 常量（冻结值） |
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
-### 11.2 Client 纯函数（不得 import React）
+### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**
 
 **仍然采用 v1 的单文件 + `__internals` 方案**（frontend 写作用域不含 `scripts/**`，禁止装打包器）：
 
@@ -771,7 +813,7 @@ window.__ModuleLoader__.load({
     const React = require('react')
     // …纯函数与组件…
     function apply(ctx) { /* 注册 slot + locale + style */ }
-    return { inject: ['slots', 'locale'], apply, __internals: { /* 见下 */ } }
+    return { inject: ['slots', 'locale'], apply, __internals: { /* 见冻结表 */ } }
   },
 })
 ```
@@ -789,41 +831,53 @@ const mod = captured.factory((id) => {
 const { mergePoll, clampColumnWidth } = mod.__internals
 ```
 
-**`__internals` 必须导出**（tester 按此写用例）：
+**`__internals` 冻结表（v3 冻结，改动需 Lead 批准；与 `lib/client.js` 实际返回对象逐键核对）**
 
-```ts
-clampColumnWidth(w: number): number                    // 280–640；NaN/字符串→352
-DEFAULT_COLUMN_WIDTH: 352; MIN_COLUMN_WIDTH: 280; MAX_COLUMN_WIDTH: 640
-filterRuns(runs: Run[], filter: FilterState): Run[]
-countByKind(runs: Run[]): { all: number; bash: number; job: number; terminal: number }
-searchMatch(run: Run, query: string): boolean
-orderRunningColumns(runs: Run[]): string[]
-groupCompleted(runs: Run[]): string[]
-createFollowState(): FollowState
-onScrollFollow(state: FollowState, m: { scrollTop: number; scrollHeight: number; clientHeight: number }): FollowState
-onOutputFollow(state: FollowState, lines: number): FollowState
-createCollapseState(): CollapseState
-armCollapse(state: CollapseState, now: number): CollapseState
-pauseCollapse(state: CollapseState): CollapseState
-resumeCollapse(state: CollapseState, now: number): CollapseState
-tickCollapse(state: CollapseState, now: number): CollapseState
-pinCollapse(state: CollapseState): CollapseState
-stripAnsi(text: string): string
-tailLines(text: string, maxLines: number): { text: string; dropped: number }
-formatDuration(ms: number): string
-formatCountdown(ms: number): string
-mergePoll(state: ViewState, frame: PollResult): ViewState
-```
+| 分类 | 导出名 | 签名 / 返回 |
+|---|---|---|
+| 列宽 | `clampColumnWidth(width)` | → `number`（280–640；NaN/字符串→352） |
+| | `DEFAULT_COLUMN_WIDTH` / `MIN_COLUMN_WIDTH` / `MAX_COLUMN_WIDTH` | `352` / `280` / `640` |
+| 筛选与排序 | `filterRuns(runs, filter)` | → `Run[]` |
+| | `countByKind(runs)` | → `{ all:number; bash:number; job:number; terminal:number }` |
+| | `searchMatch(run, query)` | → `boolean` |
+| | `orderRunningColumns(runs)` | → `string[]`（runId，startedAt 升序） |
+| | `groupCompleted(runs)` | → `string[]`（runId，finishedAt 降序） |
+| 跟随 | `createFollowState()` | → `FollowState` |
+| | `onScrollFollow(state, m: { scrollTop:number; scrollHeight:number; clientHeight:number })` | → `FollowState`（距底 ≤4px 恢复） |
+| | `onOutputFollow(state, lines: number)` | → `FollowState`（累积 pendingNewLines） |
+| 自动收起 | `createCollapseState()` | → `CollapseState` |
+| | `armCollapse(state, now)` | → `CollapseState` |
+| | `pauseCollapse(state)` | → `CollapseState` |
+| | `resumeCollapse(state, now)` | → `CollapseState`（重置完整 10s） |
+| | `tickCollapse(state, now)` | → `CollapseState` |
+| | `pinCollapse(state)` | → `CollapseState` |
+| 文本与时间 | `stripAnsi(text)` | → `string` |
+| | `tailLines(text, maxLines)` | → `{ text:string; dropped:number }` |
+| | `formatDuration(ms)` | → `string` |
+| | `formatCountdown(ms)` | → `string` |
+| 核心 reducer | `mergePoll(state, frame, options?)` | → `ViewState`（`options: { defaultWidth?, autoExpandNew?, now?, scrollbackLines? }`） |
+| 辅助（同样冻结） | `createViewState(sessionId)` | → `ViewState` |
+| | `createColumnState(runId, status, options?)` | → `ColumnState` |
+| | `pruneRuns(state, now)` | → `ViewState`（本地兜底淘汰，见 §4.2 语义 5） |
+| | `expandCollapse(state, now)` | → `CollapseState` |
+| | `unpinCollapse(state, now)` | → `CollapseState` |
+| | `runText(run)` | → `string`（命令/标题文本） |
+| | `outputText(run)` | → `string`（累积输出文本） |
+| | `formatClock(epochMs)` | → `string` |
+| | `formatBytes(bytes)` | → `string` |
+| | `isTerminalStatus(status)` | → `boolean` |
+| 常量 | `FOLLOW_TOLERANCE_PX` / `COLLAPSE_DELAY_MS` / `SCROLLBACK_LINES` / `COMPLETED_RETAIN_MS` / `MAX_RUNS` | `4` / `10000` / `600` / `300000` / `32` |
 
 `mergePoll` 必须满足（tester 重点）：
 
 - `revision <= 已应用` → 原样返回（引用相等）。
 - 相同帧重复应用 → 等价（幂等）。
-- `removed` 删除 run 与 column，未命中不抛错。
+- **`removed`：立即删除 run 与 column（以及 droppedLines/游标），未命中不抛错；不做延时保留**（v3 定案，见 §4.2 语义 5）。
 - `truncated` 不改变游标语义（游标只由 `nextCursors` 推进）。
 - `chunks` 一律 append；`terminal` 行增量同样 append，`lossy` 插入缺口标记。
 - `availability` 变化只改标记，不清空已有数据。
 - `outputMode:'final-only'` 的 Run 在 running 阶段无输出块也不报错。
+- **终态单调（HIGH 缺陷回归点）**：已终态 Run 收到 running/旧帧不得回退为 running；`mergeRun` 的 status 合并必须保持单调。
 
 ### 11.3 装配测试（tester 可做）
 
@@ -892,17 +946,19 @@ mergePoll(state: ViewState, frame: PollResult): ViewState
 
 ## 13. 下游交接清单
 
-### 13.1 backend（T3）v2 增补
+### 13.1 backend（T3）v2/v3 增补
 
 - [ ] `tools/execute` 只读记录（**必须 `return await next()`**）；`exec.agent` 可选，缺失不猜归属。
 - [ ] `tools/result`（emit）取终态输出 → `parseToolResultText`；Run 标 `outputMode:'final-only'` + `detail:'final-only'`。
 - [ ] `bashCapture` 的 shell tee 为 **best-effort**：失败只设 `availability.bashLive={available:false, reason:'no-shell-handle'}`，**不得**让插件加载失败或影响工具链。
-- [ ] terminal 用行坐标：`computeTerminalDelta` + 尾重叠去重 + `totalLines` 回退置 lossy。
+- [ ] terminal 用行坐标：`computeTerminalDelta` + 尾重叠去重 + `totalLines` 回退置 lossy；**HIGH 回归**：跨页拼接保留 `\n`（`tests/host/terminal-window.test.mjs`）。
 - [ ] `jobs.readAt` 用 `next` 不透明游标；`caller` 传**目标** sessionId。
 - [ ] 路由 handler 自己 try/catch，不外抛（外抛=HTTP 500 纯文本）。
+- [ ] **v3 预算三级**（§4.3）：Tier1 `buildPollFrame`（输出文本口径）→ Tier2 `boundFrameDetailed`（整帧 JSON 兜底，被丢 Run 退回 `store.restore` 且不提交游标）→ Tier3 `route.boundResponseValue`（262144 硬上限，被丢 Run 游标回退上一轮）。**`truncated` 与 `nextCursors` 必须满足 §4.3 不变量**。
+- [ ] **LOW 回归**：`boundFrame` 的 1 字节边界（`≤ limit` 放行 / `> limit` 裁剪；`headBytes` 不切半码点）→ `tests/host/frame.test.mjs`。
 - [ ] 跨会话聚合冒烟（U6）；任一来源异常降级不 500。
 
-### 13.2 frontend（T4）v2 增补
+### 13.2 frontend（T4）v2/v3 增补
 
 - [ ] 组件 props 只需用 `sessionId`、`useSession`、`t`（F28）；不要同名覆盖 `viewRequest`/`openView` 等保留 prop。
 - [ ] 样式自注入 `<style data-plugin-css>` 并在卸载移除（无 `styles.insert`，F13）。
@@ -910,15 +966,22 @@ mergePoll(state: ViewState, frame: PollResult): ViewState
 - [ ] 自适应轮询：活跃 250ms / 空闲 1000ms / 隐藏暂停（§4.5）。
 - [ ] `final-only` Run 的「仅终态」徽标与禁用停止；终端缺口/裁剪提示。
 - [ ] 切 tab 即 unmount → 必须清理轮询/rAF/监听/滚动（F25）。
-- [ ] `__internals` 必须导出 §11.2 全部函数。
+- [ ] `__internals` 必须与 §11.2 冻结表**逐键一致**（增删改需 Lead 批准）。
+- [ ] **v3 `removed` 语义**：收到即删 run/column/droppedLines/游标，不做延时；`completedRetainMs` 只用于 `pruneRuns` 本地兜底。
+- [ ] **HIGH 回归**：`mergeRun` 终态单调（终态后收到 running/旧帧不得回退）→ `tests/client/merge-poll.test.mjs`。
 
-### 13.3 tester（T5）v2 增补
+### 13.3 tester（T5）v2/v3 增补
 
-- 新增必测：`parseToolResultText`、`mapToolResultStatus`、`computeTerminalDelta`（k>0/k<=0/lineEnd<totalLines/overlap 去重）、`dedupeTailOverlap`、`mergePoll` 的 final-only 与 terminal 缺口场景。
+- 按 **§11.1 / §11.2 冻结表**对齐导出类用例（模块→导出名→签名）；表外实现内部函数不测。
+- 新增必测：`parseToolResultText`、`mapToolResultStatus`、`computeTerminalDelta`（k>0/k<=0/lineEnd<totalLines/overlap 去重）、`dedupeTailOverlap`、`planTerminalRead`（mode 四态）、`mergePoll` 的 final-only 与 terminal 缺口场景。
+- **v3 预算用例**：Tier1 整 Run 跳过且首条放行；Tier2 兜底后被丢 Run 无 `nextCursors`；Tier3 被丢 Run 游标回退；`truncated:true` 时 `nextCursors` 不越过已交付字节（§4.3 六条不变量）。
+- **v3 removed 用例**：`removed` 立即删除；同一 run 随后到达不影响其它 run；`pruneRuns` 独立于 `removed`。
+- **HIGH/LOW 回归**：`terminal-window` 换行、`mergeRun` 终态单调、`boundFrame` 边界。
 - 装配测试：断言 client `apply` 注入的 `<style>` 在 dispose 后被移除；断言 `label()` 返回「终端」。
 
 ### 13.4 audit（T6）对照点
 
 - 本文件 §2 的每个 F 编号都能指到 `docs/research/dsh-plugin-apis.md` 或 live inspect/asar 证据；
 - §12 六项裁决在实现中可观察到（无角标/无 xterm/`final-only`/默认全部/HTTP 路由/元数据文件存在）；
+- **v3 三项一致化**：§4.3 三级预算与 `lib/host/{frame,route}.mjs` 一致、§4.2 语义 5 与 `lib/client.js` `mergePoll` 一致、§11.1/§11.2 冻结表与 `lib/host/*.mjs` 导出 / `lib/client.js` `__internals` 逐项一致；
 - docs/install.md 的安装步骤与 §8/§12.9 一致。
