@@ -41,6 +41,7 @@ npm run verify
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
 - 复盘（T4 结构性调整）：[`docs/retro/2026-10-26-bash-live-source.md`](docs/retro/2026-10-26-bash-live-source.md)
 - 许可证：[`LICENSE`](LICENSE)（MIT）
+- 项目级 agent 指引见 [`AGENTS.md`](AGENTS.md)；一键发布+安装见 [`deploy/publish-and-install.sh`](deploy/publish-and-install.sh)。
 
 ## 功能一览（验收基线 = ui-spec v4 + 本 README「已知限制」）
 
