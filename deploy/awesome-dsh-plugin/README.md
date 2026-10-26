@@ -2,7 +2,7 @@
 
 > 目标：把 `dsh-terminal-panel` 收录进 **Awesome DSH Plugin**（站点 <https://awesome-dsh-plugin.com/>，
 > 数据仓库 <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin>）。
-> 本目录是**投稿内容**，不是可执行发布脚本；实际提交动作（fork / push / PR）仍由维护者执行。
+> 本目录存放**投稿内容**；实际提交动作已执行（2026-10-26），当前状态见 §10。
 
 ## 0. 一句话结论
 
@@ -160,3 +160,14 @@ console.log("problems:", JSON.stringify(problems));
 - 提交闸门（`dsh.bundle`、1 天年龄、每 PR ≤3 条）：<https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/scripts/check-submission.mjs>
 - PR 模板：<https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/.github/pull_request_template.md>
 - 本仓库安装/验证：`docs/install.md`、`README.md`
+
+## 10. 提交记录（2026-10-26）
+
+| 项 | 值 |
+|---|---|
+| 本仓库投稿提交 | `6a16d17` — `chore(deploy): awesome-dsh-plugin 投稿条目 + 商店图标`（已推 `main`） |
+| 列表仓库 PR | [#9582](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/9582)，head `xx529:add-xx529-dsh-terminal-panel`，diff 仅新增 `data/plugins/xx529__dsh-terminal-panel.yml` |
+| 分支基点 | fork `main` `4693e5a`（落后上游 `main` `a7ae7b2`；因只新增文件，PR 仍为 `MERGEABLE`） |
+| CI 预期 | 首次运行会因仓库年龄报 `repository is 0.x days old (needs 1) — nothing to do`；`regate.yml` 约每 6 小时自动重跑，**2026-10-27T04:03:40Z 之后应自动转绿**，期间不要重开/强推 |
+| 定时检查 | 每天 **23:00（Asia/Shanghai）** 检查 PR 状态 / 站点条目页 / dsh-market 索引；收录后自动删除该定时任务（schedule id `schedule-e2b0d6ad-12dc-4e50-af03-a68bcea0ff08`） |
+| 合并后 | 站点条目页 <https://awesome-dsh-plugin.com/p/xx529/dsh-terminal-panel/>；再按 §7 做可选动作（README 安装命令/徽章、可选更新条目强调 v8 网格） |
