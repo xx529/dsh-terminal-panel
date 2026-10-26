@@ -238,3 +238,32 @@ test('plan/apply 组合：首见 → probe → 新增行，只交付一次且行
   assert.equal(delivered, 'a\nb\nc\nd', `组合后交付文本必须完整且无重复，实际 ${JSON.stringify(delivered)}`)
   assert.equal(api.windowCursor(win), 4)
 })
+
+/* ---------------- composeTextAppend（v7：事件片段行边界，backend 修复后新增纯函数） ---------------- */
+test('composeTextAppend: 无前文/前文已换行/前文未换行 → 正确补前导换行', () => {
+  const compose = fn('composeTextAppend')
+  assert.deepEqual(compose({ hasPrevious: false }, 'Welcome\n'), { text: 'Welcome\n', overlapLines: 0, continuesLine: false })
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'a\n', endsWithNewline: true }, 'b\nc'), { text: 'b\nc', overlapLines: 0, continuesLine: false })
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'a', endsWithNewline: false }, 'b\nc'), { text: '\nb\nc', overlapLines: 0, continuesLine: false })
+})
+
+test('composeTextAppend: 整行重叠去重后补前导换行（不粘行）', () => {
+  const compose = fn('composeTextAppend')
+  // 上一段 'a\nb' 未以换行结尾；本段尾部重叠行 b → 只留 '\nc'
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'a\nb', endsWithNewline: false }, 'b\nc'), { text: '\nc', overlapLines: 1, continuesLine: false })
+  // 完全相同 → 空增量
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'a', endsWithNewline: false }, 'a'), { text: '', overlapLines: 1, continuesLine: false })
+})
+
+test('composeTextAppend: 同一行续写（PTY 无换行）→ 原样拼接、不加前导换行', () => {
+  const compose = fn('composeTextAppend')
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'abc', endsWithNewline: false }, 'abcdef'), { text: 'def', overlapLines: 0, continuesLine: true })
+})
+
+test('composeTextAppend: 空行语义（同段空行/仅空行）保持', () => {
+  const compose = fn('composeTextAppend')
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'z\n', endsWithNewline: true }, 'a\n\nb'), { text: 'a\n\nb', overlapLines: 0, continuesLine: false })
+  // 整行重叠（同段首行=前段尾行）只去重一次，保留空行语义
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'a\n', endsWithNewline: true }, 'a\n\nb'), { text: 'b', overlapLines: 2, continuesLine: false })
+  assert.deepEqual(compose({ hasPrevious: true, tail: 'x', endsWithNewline: false }, '\n'), { text: '\n\n', overlapLines: 0, continuesLine: false })
+})

@@ -253,15 +253,19 @@ export function createFakeTerminalsService(initial = []) {
       if (s.owner !== ownerId) throw new Error(`terminal ${id} 不属于 owner ${ownerId}`)
       const totalLines = s.lines.length
       const count = Math.min(opts.count ?? 400, 4000)
-      const start = Math.max(0, Math.min(opts.offset ?? Math.max(0, totalLines - count), totalLines))
-      const slice = s.lines.slice(start, start + count)
-      readCalls.push({ owner: ownerId, id, offset: start, count })
+      // 契约 F18 / v7 §5.2：offset = **距最新行数**（0=尾页）；end=totalLines-offset；
+      // start=max(0,end-count)；返回 lineBegin=offset、lineEnd=offset+返回行数（同坐标系）。
+      const offset = Number.isFinite(opts.offset) ? Math.max(0, Math.min(opts.offset, totalLines)) : 0
+      const end = Math.max(0, totalLines - offset)
+      const start = Math.max(0, end - count)
+      const slice = s.lines.slice(start, end)
+      readCalls.push({ owner: ownerId, id, offset, count, start, end })
       return {
         text: slice.join('\n'),
         totalLines,
-        lineBegin: start,
-        lineEnd: start + slice.length,
-        truncated: start > 0 || start + slice.length < totalLines,
+        lineBegin: offset,
+        lineEnd: offset + slice.length,
+        truncated: start > 0 || offset > 0,
       }
     },
     kill(owner, id, reason) {
