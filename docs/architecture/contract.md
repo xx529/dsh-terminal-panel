@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v4.1）
+# dsh-terminal-panel · 架构与契约（v5）
 
-> 状态：**v4.1（v4 + T6 集成审计落字）** — 追加 H1（Tier2 livelock）保底规则、M1（「在对话中定位 / 在终端中打开」裁决不做）、M2（预算调度与选择集一致）实现约束与 LOW 已知差异表（§12.10）；仅文档，不改代码（H1 修复归 backend task-12，回归归 tester）。
+> 状态：**v5（v4.1 + H1/M2 实现对齐）** — backend 修复（commit `4bc721e`）落地 H1（Tier2 单 Run livelock）与 M2（选择集/预算错配）：新增 4 个 additive 导出与 store 侧 additive 方法与常量，Lead 已批准扩冻结表；本版补齐 §11.1 冻结表、§0 v5 变更记录与 §4.3 实现对齐（部分交付后缀回退、`bounded.nextCursors` 唯一提交来源、`dropStreak` 保底、`planReads` 公平分配）。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -32,6 +32,7 @@
 | v3 | 2026-10-26 | tester 审计驱动的一致化：①帧预算三级单一语义（§4.3）；②`removed` 语义二分（§4.2 语义 5）；③§11.1/§11.2 冻结导出表；附 HIGH/LOW 缺陷归属与 §9 配置漂移对齐。 |
 | v4 | 2026-10-26 | 附录补丁（仅文档）：①`computeTerminalDelta` 的 **k<0** 才 lossy（k===0 是正常探尾，不标 lossy）；②terminal `truncated` = 输出未完整覆盖（`page.truncated \|\| lineEnd < totalLines`），不是分页未取完；③非 live root 会话返回**降级帧**而非 `session-not-found`（仅 sessionId 语法非法才 coded 错误）；④tester C1/C2/C5 定案，C3/C4 标 closed。 |
 | v4.1 | 2026-10-26 | T6 集成审计落字（仅文档）：①H1 保底规则（单 Run 元信息截断 ≤4 KiB + `metaTruncated`；Tier2 至少保留 1 条 Run；`nextCursors` 只前移实际交付字节）；②M1 裁决「在对话中定位 / 在终端中打开（仅终端）」本期不做（§12.8）；③M2 实现约束「预算调度与选择集必须是同一集合」；④LOW L1–L5 已知差异表（§12.10）。 |
+| v5 | 2026-10-26 | H1/M2 实现对齐（backend `4bc721e`）：§11.1 冻结表增补 4 个 additive 导出（`pickFallbackRun`/`runOutputTextBytes`/`trimRunOutput`/`splitDeltaAtBytes`）与 store 侧 additive 导出/方法（`META_MAX_BYTES`/`truncateMetaText`/`serializeRun`/`frameSelection`/`selectForFrame`/`commitCursorsFromFrame`）；`boundFrameDetailed` 补可选第 3 参 `{preferRunId}`；§4.3 对齐部分交付后缀回退、`bounded.nextCursors` 唯一提交来源、`dropStreak` 保底、`planReads` 公平分配。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -71,6 +72,19 @@
 | M1 | ui-spec §3.7 的「在对话中定位」「在终端中打开（仅终端）」 | **裁决：本期不做**——Run 契约没有 `turn/message` 引用（无法可靠定位到对话节点），插件也不接管宿主终端面板；替代 = 复制命令 / 复制输出 / 固定展开。见 §12.8 | Lead 裁决；README「已知限制」同步 |
 | M2 | `planReads` 与 `takeEntries` 选择集错配（running > `maxRuns` 时首帧可能全空） | §4.3 增实现约束：**预算调度与选择集必须是同一集合**（同一候选集、同一排序、同一 `maxRuns` 截断方向），禁止一个函数取最旧 32、另一个取最新 32 | 修复 backend（task-12）；回归 tester（40 running 首帧有输出的用例） |
 | L1–L5 | 硬编码中文 / 行高与停止按钮像素偏差 / hello 未发 `idlePollHintMs`·`budgetMode` / `formatCountdown` 文案 / 测试桩 `ctx.on` | 见 §12.10「已知差异」表：L1 归 frontend 后续，L2/L3/L4 不修（可接受），L5 已修 | 见 §12.10 |
+
+### v5 H1/M2 实现落地（backend commit `4bc721e`，2026-10-26）
+
+| 项 | 实现要点 | 落点 |
+|---|---|---|
+| H1-元信息 | `store.serializeRun` 对 `title/command/cwd/detail` 逐字段 `truncateMetaText`（`META_MAX_BYTES=4096`，UTF-8 安全、末尾 `…`），任一被截断 → `Run.metaTruncated:true`；单 Run JSON 元信息从此有上界 | `lib/host/store.mjs`；§4.3、§5.1 |
+| H1-保底 | `boundFrameDetailed(value, maxBytes, {preferRunId?})` 在整帧裁剪后**至少保留 1 条 Run**：`pickFallbackRun` 优先 `preferRunId` → 最新且 running → 最新；必要时用 `trimRunOutput` 二分最大可交付 output 文本（可为 0）并置 `truncated`，保留 status/元信息；返回 `{value, droppedRunIds, trimmedRunIds, deliveredBytes}` | `lib/host/frame.mjs`；§4.3 Tier2 |
+| H1-部分交付 | `panel.poll` 对被**部分交付**的 Run 只用 `splitDeltaAtBytes(delta, deliveredBytes)` 退回**未交付后缀**；游标**只**按 `bounded.nextCursors` 提交（`store.commitCursorsFromFrame`），绝不按 Tier1 读取计划提交 | `lib/host/panel.mjs`；§4.3 |
+| H1-dropStreak | 每 Run 记录「连续多少帧未出现在最终帧」：`>=2` 的 Run 下一帧被强制提到最前，并作为 Tier2 保底 `preferRunId`（消除「连续 3 帧被丢且零字节」的长尾） | `lib/host/panel.mjs`；§4.3 |
+| M2 | `planReads` 接收 **`store.frameSelection` 的同一选择集**（focus → running startedAt 升序前 N → completed），预算按「剩余预算 / 剩余 Run 数」**公平分配**（focus 先拿 ≤16 KiB），40 running 不再出现「32 列零输出」 | `lib/host/cursors.mjs`/`store.mjs`；§4.3 |
+| Tier3 | 修复后单 Run JSON 有硬上界，Tier2 已能保底交付，**Tier3 成为不可达的最后防线**（仅异常防御） | `lib/host/route.mjs`；§4.3 |
+
+**v5 additive 导出（Lead 已批准扩冻结表，详见 §11.1/§11.1.1）**：`frame.mjs` 的 `pickFallbackRun`/`runOutputTextBytes`/`trimRunOutput`/`splitDeltaAtBytes`；`store.mjs` 的 `META_MAX_BYTES`/`truncateMetaText`/`serializeRun` 与 store 实例方法 `frameSelection`/`selectForFrame`/`commitCursorsFromFrame`（后三者为 `createRunStore()` 返回对象上的方法，不是模块顶层导出）。
 
 ---
 
@@ -375,20 +389,21 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 
 | 层 | 实现 | 口径 | 触发 | 裁剪方式 |
 |---|---|---|---|---|
-| Tier1（主口径） | `planReads` → `buildPollFrame` | **输出文本字节**累计 ≤ `maxFrameBytes`（默认 65536，配置夹取 1024–1048576） | 每帧都跑 | 逐 Run 累加输出文本字节；超预算的 Run **整条跳过**（不半截），排在前面的小 Run 仍可进入；**第一条 Run 永远放行**（避免大输出饿死整帧）；被跳过的 Run 记入 `dropped`，不写 `nextCursors` |
-| Tier2（同参数兜底） | `boundFrame(value, maxFrameBytes)` | **整帧 JSON 字节** ≤ 同一 `maxFrameBytes` | 仅当 Tier1 通过、但 JSON 元信息使整帧仍超限 | 从尾部**整 Run 丢弃**直到 ≤ 上限，置 `truncated:true`，并删除被丢 Run 的 `nextCursors`；调用方必须把这些 Run 退回注册表（`store.restore`）且**不提交游标**（下轮续读，绝不丢字节）。**H1 保底**：至少保留 1 条 Run（与 Tier1 首条放行对称）；裁剪后若为 0 条，保留原首条并允许整帧超 `maxFrameBytes`，但必须 < 262144 |
-| Tier3（传输硬上限） | `route.boundResponseValue(value, maxResponseBytes = 262144, previousCursors)`（`maxResponseBytes` 是固定常量，不配置） | **整帧 JSON 字节** ≤ 262144 | 仅当 Tier2 后仍超限（异常大数据/元信息） | 从尾部整 Run 丢弃直到 ≤ 上限，置 `truncated:true`；被丢 Run 的 `nextCursors` **回退为客户端上一轮游标**（无上一轮则删除），保证客户端不跳过未交付字节。**H1 保底**：若仅剩的 1 条 Run 仍超限，**截断该 Run 的 `output` 文本**（按需置 `truncated`/`lossy`）而非丢弃整条元信息——绝不出现「单 Run 永远无法交付」的 livelock |
+| Tier1（主口径） | `planReads` → `buildPollFrame` | **输出文本字节**累计 ≤ `maxFrameBytes`（默认 65536，配置夹取 1024–1048576） | 每帧都跑 | 逐 Run 累加输出文本字节；超预算的 Run **整条跳过**（不半截），排在前面的小 Run 仍可进入；**第一条 Run 永远放行**（避免大输出饿死整帧）；被跳过的 Run 记入 `dropped`，不写 `nextCursors`。**v5 对齐（M2）**：`planReads` 必须接收 `store.frameSelection` 的**同一选择集**，并按「focus 先拿 ≤16 KiB，其余按剩余预算/剩余 Run 数公平分配」给每 Run 份额（`perRunBudget`），不得另算一套候选集 |
+| Tier2（同参数兜底） | `boundFrameDetailed(value, maxFrameBytes, { preferRunId? })` | **整帧 JSON 字节** ≤ 同一 `maxFrameBytes` | 仅当 Tier1 通过、但 JSON 元信息使整帧仍超限 | 从尾部**整 Run 丢弃**直到 ≤ 上限，置 `truncated:true`，并删除被丢 Run 的 `nextCursors`；**H1 保底**：至少保留 1 条 Run —— `pickFallbackRun` 优先 `preferRunId`（dropStreak 指定）→ 最新且 running → 最新；该条必要时用 `trimRunOutput` 二分最大可交付 output（可为 0，只裁输出文本、status/元信息必保留），并返回 `trimmedRunIds` + `deliveredBytes`。**v5 对齐（部分交付）**：被部分交付的 Run 只用 `splitDeltaAtBytes(delta, deliveredBytes)` **退回未交付后缀**（不是整条退回）；游标**只按 `bounded.nextCursors` 提交**（`store.commitCursorsFromFrame`），绝不按 Tier1 读取计划提交 |
+| Tier3（传输硬上限） | `route.boundResponseValue(value, maxResponseBytes = 262144, previousCursors)`（`maxResponseBytes` 是固定常量，不配置） | **整帧 JSON 字节** ≤ 262144 | 仅当 Tier2 后仍超限（异常大数据/元信息） | 从尾部整 Run 丢弃直到 ≤ 上限，置 `truncated:true`；被丢 Run 的 `nextCursors` **回退为客户端上一轮游标**（无上一轮则删除），保证客户端不跳过未交付字节。**H1 保底**：若仅剩的 1 条 Run 仍超限，**截断该 Run 的 `output` 文本**（按需置 `truncated`/`lossy`）而非丢弃整条元信息——绝不出现「单 Run 永远无法交付」的 livelock。**v5**：修复后单 Run JSON 已有硬上界（元信息 ≤4 KiB/字段 + 输出可裁到 0），Tier2 总能保底交付，**Tier3 成为不可达的防御性兜底** |
 
 其余规则：
 
 | 项 | 规则 |
 |---|---|
-| 调度顺序 | `focusRunId` 优先 → `status==='running'` 优先 → `startedAt` 升序；每轮每 Run 最多取 `min(PER_RUN_BUDGET_BYTES(16384), 剩余预算)`（`planReads` 决定读多少） |
+| 调度顺序 | 选择集 = `store.frameSelection`（focusRunId 提到最前 → `status==='running'` 按 `startedAt` 升序取前 `maxRuns` → 终态按 `finishedAt` 降序取 `completedLimit`）；`planReads` 用**同一集合**分配预算：focus 先拿 `min(16384, 剩余)`，其余按 `剩余预算 / 剩余 Run 数` 公平分（v5/M2）；被跳过的 Run 不写 `nextCursors` |
+| dropStreak（v5/H1） | 每 Run 记录「连续未出现在最终帧」的帧数（`dropStreak`）。**连续 ≥2 帧**未出现的 Run，下一帧被**强制提到最前**，并作为 Tier2 保底 `preferRunId`（`pickFallbackRun` 优先选它），确保不会出现「连续 3 帧被丢且零字节」的长尾；一旦出现在最终帧即清零 |
 | 单 chunk 上限 | 单条 `text` ≤ 16384 字节（`splitChunks` 切块，不切半个码点）；`limitDelta` 负责单 Run 内截断 |
 | 超长 Run 数 | running > `maxRuns`(32) 时只返回前 32 个 running + 最近 `completedLimit` 条终态（UI 显示「另有 N 个未显示」） |
 | 标记语义 | `truncated`（bash tee / job 通道）= 本帧没发完（可续读，**不丢数据**）；`lossy` = 数据已丢（不可恢复）。两者不可混用。**terminal 专用（v4）**：`TerminalDelta.truncated = page.truncated \|\| lineEnd < totalLines`，表示**该会话输出未被完整覆盖**（scrollback 裁剪，或窗口未及最旧行），**不是「本帧没发完 / 分页未取完」；client 不得据此循环翻页**（历史靠本地缓冲 + 手动上翻） |
 | `budgetMode?` | 可选字段 `'text' \| 'frame'`：`'text'`（缺省）= 本帧未触发整帧 JSON 兜底；`'frame'` = 本帧被 Tier2/3 按整帧 JSON 口径裁剪。**当前实现未发该字段（省略即 `'text'`），client 不得依赖；backend 可在 Tier2/3 裁剪时补发（v3 允许，向后兼容）** |
-| `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次）。**H1 重申**：⑤/⑥ 同样适用于「Tier3 截断 output 而非丢 Run」的情况——游标只前移到实际交付的字节，**绝不因截断而越过未交付字节** |
+| `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次）。**H1 重申**：⑤/⑥ 同样适用于「Tier3 截断 output 而非丢 Run」的情况——游标只前移到实际交付的字节，**绝不因截断而越过未交付字节**。**v5 实现约束**：服务端游标**只**由 `store.commitCursorsFromFrame(bounded.nextCursors)` 提交（不做 Tier1 计划游标的提前提交），这是部分交付不丢字节/不重复的必要条件 |
 | 元信息上限（H1） | `command`/`cwd`/`detail`/`title` 在序列化前各截断到 **≤ 4096 字节**（保留头部、不切半个码点），Run 置 `metaTruncated:true`；UI 单行省略 + tooltip 展示。目的：把单 Run 的 JSON 元信息控制在 Tier2 预算内（默认 65536 下即使超长 heredoc 命令也不会 livelock）。v3 冻结表不变（`metaTruncated` 为 Run 的新可选字段） |
 | 选择集一致（M2） | **预算调度与选择集必须是同一集合**：`planReads` 的候选集合、排序、`maxRuns` 截断方向必须与 `takeEntries` 完全一致（同一集合、同一排序、同一端截断），禁止一个取最旧 32、另一个取最新 32。修复归 backend（task-12），回归归 tester：40 个 running 时首帧 32 列中必须有输出（不得交给下一帧补齐） |
 | 饥饿保护 | Tier1 首条 Run 永远放行；Tier2 至少保留 1 条 Run（H1 保底）；`focusRunId` 在 `planReads` 中优先分配预算（放大弹窗/活动列不被饿死） |
@@ -774,11 +789,11 @@ interface ViewState {
 
 ## 11. 可测试性契约（tester 直接照此写用例）
 
-### 11.1 Host 纯模块导出 **冻结表**（v3 冻结，改动需 Lead 批准）
+### 11.1 Host 纯模块导出 **冻结表**（v3 冻结 + v5 增补，改动需 Lead 批准）
 
-> 冻结范围：`lib/host/{classify,tree,status,cursors,frame,terminal-window}.mjs`（纯逻辑、无 DSH/React 依赖，`node:test` 直接 `import`）。
-> 不冻结：`store.mjs`（有状态）、`panel.mjs` / `route.mjs`（集成）、`capture-*.mjs`（依赖 ctx）——由 `scripts/smoke-host.mjs` 与 `tests/host/{panel,assembly}.test.mjs` 覆盖。
-> 本表已与 `lib/host/**` 工作树实际 `export` 逐条核对（2026-10-26；含 backend 未提交的在途修改，以工作树为准）；tester 按「模块 → 导出名」对齐导出类用例。
+> 冻结范围：`lib/host/{classify,tree,status,cursors,frame,terminal-window}.mjs`（纯逻辑、无 DSH/React 依赖，`node:test` 直接 `import`）；**v5 增补**：`frame.mjs` 的 H1/M2 4 个 additive 导出（Lead 批准）。
+> 不冻结：`panel.mjs` / `route.mjs`（集成）、`capture-*.mjs`（依赖 ctx）——由 `scripts/smoke-host.mjs` 与 `tests/host/{panel,assembly}.test.mjs` 覆盖；`store.mjs` 的 additive 导出与实例方法见 §11.1.1（v5 起冻结）。
+> 本表已与 `lib/host/**` 工作树实际 `export` 逐条核对（2026-10-26，含 `4bc721e`；脚本核 missing=0）；tester 按「模块 → 导出名」对齐导出类用例。
 
 | 模块 | 导出名 | 签名 / 返回 | 说明 |
 |---|---|---|---|
@@ -812,10 +827,14 @@ interface ViewState {
 | | `normalizeOutput` | `(output: object, fallbackAt?: number) => { stdout?, stderr?, job?, terminal? }` | 归一化增量块 |
 | | `buildPollFrame` | `(input: object, cursors?: Record<string, object>, budget?: { maxBytes?: number; maxRuns?: number }) => { value: object; nextCursors: Record<string, object>; dropped: string[]; droppedEntries: object[] }` | Tier1 主口径裁剪（整 Run 跳过、首条放行） |
 | | `boundFrame` | `(value: object, maxBytes: number) => object` | Tier2 兜底：整帧 JSON ≤ maxBytes，返回裁剪后的 `PollResult` |
-| | `boundFrameDetailed` | `(value: object, maxBytes: number) => { value: object; droppedRunIds: string[] }` | 同 Tier2，带被丢 Run 明细（panel 用它退回注册表） |
+| | `boundFrameDetailed` | `(value: object, maxBytes: number, options?: { preferRunId?: string }) => { value: object; droppedRunIds: string[]; trimmedRunIds: string[]; deliveredBytes: Record<string, Record<string, number>> }` | Tier2 兜底（H1）：至少保留 1 条 Run；`preferRunId` 指定保底优先项（dropStreak 用）；`trimmedRunIds` = 输出被裁剪的 Run；`deliveredBytes` = 各通道实际交付字节（panel 据此只退回未交付后缀） |
 | | `headBytes` | `(text: string, maxBytes: number) => { text: string; truncated: boolean }` | 保留头部字节、不切半码点；`truncated` 仅真截断 |
 | | `parseToolResultText` | `(result: { content?: Array<{ type?: string; text?: string }>; value?: unknown }, maxBytes?: number /* 默认 32768 */) => { text: string; truncated: boolean }` | final-only 终态文本：优先 text 块，否则 `value` JSON 摘要 |
 | | `textBytes` | re-export `store.mjs` 的 `(text: string) => number` | UTF-8 字节数 |
+| *（v5 增补，H1/M2）* | `pickFallbackRun` | `(runs: object[], preferRunId?: string) => object \| undefined` | Tier2 保底选择：`preferRunId` → 最新且 running → 最新 |
+| *（v5 增补，H1/M2）* | `runOutputTextBytes` | `(run: object) => number` | 一条 Run 的输出文本总字节（Tier1 口径） |
+| *（v5 增补，H1/M2）* | `trimRunOutput` | `(run: object, allowBytes: number, originalCursor?: object) => { run: object; cursors: object; deliveredBytes: Record<string, number>; trimmed: boolean }` | 只裁输出文本（status/元信息保留）；二分最大可交付字节，返回对应游标与实际交付字节 |
+| *（v5 增补，H1/M2）* | `splitDeltaAtBytes` | `(delta: object, deliveredBytes: number) => { delivered: object \| undefined; remainder: object \| undefined }` | 把通道 delta 拆成已交付前缀 / 未交付后缀（部分交付后只退回后缀，绝不丢字节） |
 | `terminal-window.mjs` | `createTerminalWindow` | `() => { totalLines: number; tail: string }` | terminal 行基线初值 |
 | | `lastLine` | `(text: string) => string` | 取最后一行（PTY `\r` 重写用） |
 | | `tailLinesOf` | `(text: string, lines?: number /* 默认 32 */) => string` | 取尾部 N 行 |
@@ -825,6 +844,22 @@ interface ViewState {
 | | `applyTerminalRead` | `(window: { totalLines: number; tail: string }, page: object, overlapLines?: number) => { delta: TerminalDelta; window: object }` | compute + 推进窗口 |
 | | `windowCursor` | `(window: { totalLines?: number }) => number` | 行基线游标 |
 | | `TERMINAL_PAGE_LINES` / `MAX_DELTA_LINES` / `DEFAULT_OVERLAP_LINES` | `400` / `10000` / `32` | 常量（冻结值） |
+
+#### 11.1.1 `store.mjs` additive 导出与 Store 实例方法（v5 增补，H1/M2 修复；改动需 Lead 批准）
+
+> `store.mjs` 整体仍是**有状态模块**（集成由 `tests/host/panel.test.mjs` 覆盖）；下表只冻结 H1/M2 修复新增的 **additive** 面，避免下游按旧表误判「导出缺失」。
+
+| 形态 | 导出名 | 签名 / 返回 | 说明 |
+|---|---|---|---|
+| 模块导出（新增常量） | `META_MAX_BYTES` | `4096` | 元信息单字段 UTF-8 字节上限（H1） |
+| 模块导出（新增纯函数） | `truncateMetaText` | `(text: string, maxBytes?: number /* 默认 4096 */) => { text: string; truncated: boolean }` | UTF-8 安全截断 + 末尾 `…`（不切半码点） |
+| 模块导出（既有，H1 起承担截断职责） | `serializeRun` | `(record: object, now: number) => object` | 记录 → 线上 `Run`；对 `title/command/cwd/detail` 逐字段截断并置 `metaTruncated` |
+| 模块导出（既有） | `createRunStore` | `(options?: { completedLimit?: number; retainCompletedMs?: number; now?: () => number }) => StoreApi` | 创建 Run 注册表 |
+| 模块导出（既有） | `textBytes` | `(text: string) => number` | UTF-8 字节数（多处 re-export） |
+| 模块导出（既有） | `kindWeight` | `(kind: string) => number` | Run 类型排序权重 |
+| Store 实例方法（新增，M2） | `frameSelection` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string }) => object[]` | **唯一选择集**（focus → running startedAt 升序前 N → completed）；`planReads` 必须用同一集合 |
+| Store 实例方法（新增，M2） | `selectForFrame` | 同 `frameSelection`（**别名**） | 语义等价，供调用方按可读性选用 |
+| Store 实例方法（新增，H1） | `commitCursorsFromFrame` | `(nextCursors?: Record<string, object>) => void` | 只按**本帧实际交付**的 `nextCursors` 提交游标（Tier2/3 裁剪后唯一可信来源） |
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
