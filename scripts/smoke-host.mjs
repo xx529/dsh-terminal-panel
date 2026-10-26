@@ -14,6 +14,7 @@
  * 运行：node scripts/smoke-host.mjs
  */
 
+import * as hostEntry from '../lib/index.js'
 import { apply, inject, name } from '../lib/index.js'
 import { createPanel } from '../lib/host/panel.mjs'
 
@@ -410,6 +411,10 @@ async function main() {
       },
     })
     const returned = apply(mock.ctx, {})
+    // H2b：DSH loader 会把 ESM default 导出（函数）当插件本体 → name/inject 元数据丢失。
+    // 必须只有具名导出（对照 @local/dsh-popout-window）。
+    check(!('default' in hostEntry), 'lib/index.js has no default export (loader reads named metadata)')
+    check(typeof hostEntry.apply === 'function', 'lib/index.js exports apply (named)')
     check(name === 'terminal-panel', 'export name = terminal-panel', name)
     check(inject.join(',') === 'webServer,connection', 'export inject = [webServer, connection]', inject)
     // Cordis 插件契约：apply 返回值会被当作 effect；普通对象 → TypeError("Invalid effect") = H2 根因。
