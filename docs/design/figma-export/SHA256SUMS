@@ -1,18 +1,32 @@
 # dsh-terminal-panel · Figma 设计板导出包（ASCII 稳定命名，可随仓库入库 / 可下次重新导入 Figma）
 #
-# 映射（导出名 <-- 原始 Figma 导出文件名）：
-#   a-main.png            <-- 1-A-主视图-默认全部会话-横向列-已完成收起-.png
-#   b-overflow-filter.png <-- 2-B-横向滚动溢出-会话范围多选-子代理-队友-.png
-#   c-states-rules.png    <-- 3-C-状态机-自动收起规则-数据源.png
-#   e-boundary.png        <-- 4-E-边界状态-空态-暂停跟随-清空已完成.png
-#   d-light.png           <-- 5-D-Light-主题-令牌映射.png
-#   f-maximize.png        <-- 6-F-最大化弹窗-单条活动专注观看-只读-.png
+# 每张板两种格式：*.svg = 矢量（可直接拖回 Figma，推荐导入用）；*.png = 位图（验收/预览用）
+#
+# 映射（导出名 <-- 原始 Figma 导出文件名），PNG 来自 e7b0e68d… 批次，SVG 来自 4f274e44… 批次：
+#   a-main.png             <-- 1-A-主视图-默认全部会话-横向列-已完成收起-.png
+#   a-main.svg             <-- 1-A-主视图-默认全部会话-横向列-已完成收起-.svg
+#   b-overflow-filter.png  <-- 2-B-横向滚动溢出-会话范围多选-子代理-队友-.png
+#   b-overflow-filter.svg  <-- 2-B-横向滚动溢出-会话范围多选-子代理-队友-.svg
+#   c-states-rules.png     <-- 3-C-状态机-自动收起规则-数据源.png
+#   c-states-rules.svg     <-- 3-C-状态机-自动收起规则-数据源.svg
+#   e-boundary.png         <-- 4-E-边界状态-空态-暂停跟随-清空已完成.png
+#   e-boundary.svg         <-- 4-E-边界状态-空态-暂停跟随-清空已完成.svg
+#   d-light.png            <-- 5-D-Light-主题-令牌映射.png
+#   d-light.svg            <-- 5-D-Light-主题-令牌映射.svg
+#   f-maximize.png         <-- 6-F-最大化弹窗-单条活动专注观看-只读-.png
+#   f-maximize.svg         <-- 6-F-最大化弹窗-单条活动专注观看-只读-.svg
 #
 # 校验：cd docs/design/figma-export && shasum -a 256 -c SHA256SUMS
 #
 5cc473ffb0aef337b7d890c1caf508fde72f6b79ebaba4a91ed6b42e459cc46c  a-main.png
 c281ae93a512f2a2da483fae1c0c62c8d5b4b5ec548aaca4f94c676f39138f5b  b-overflow-filter.png
 460ccf354e8d5e9ab89083bc76bde184353b14d8d0b9998db2e8a23694148a47  c-states-rules.png
-8a00f1f93d7ee83270f61beee20f473463c9ddbe6dc21c69d6e55bf6bc511e2f  e-boundary.png
 297dfb145a4b59f267b5d3cc6621b4b9ef467f07018cdcf3c52cdcfce41b2148  d-light.png
+8a00f1f93d7ee83270f61beee20f473463c9ddbe6dc21c69d6e55bf6bc511e2f  e-boundary.png
 ec4fec28a60ac3f173275c09e13b2e0d42cf5ea1be4a0389542da3dfad4adc17  f-maximize.png
+60064d7aaf5f0ab5e56c56cb178f26375035f335d144f999f5ef33a821e11901  a-main.svg
+b00c9efae67e53ab6ca1284a96a65f2a43941e4d4e78b26e222a8c4ea956868e  b-overflow-filter.svg
+fe269bd28b39038dc48d763314941bdee36d9ed808382d1ae8c3266918c04b37  c-states-rules.svg
+884613a821ca0c1d6b3611f560b9306d95d0b7ed0c07e7e4c613358f36f4b417  d-light.svg
+0c6f21ecd0d955b633d24dde1cb28f3e305a4cb47e1e5ce3c21ae8c631b224b2  e-boundary.svg
+af1673f7660b9e9c32115129004d616f41a053cecb3996cff3d6718d85035616  f-maximize.svg
