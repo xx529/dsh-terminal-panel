@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "终端 (dsh-terminal-panel)",
+    "description": "聚合当前会话、子代理与 Agent Team 队友的 bash、后台任务与持久终端实时输出，支持横向列、筛选、自动收起、跟随滚动与最大化只读弹窗。"
+  }
+}

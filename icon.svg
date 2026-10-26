@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Terminal panel">
+  <rect x="1.5" y="2.5" width="21" height="19" rx="4.5" fill="#11161D"/>
+  <path d="M6.4 8.2 9.9 12l-3.5 3.8" fill="none" stroke="#E6EDF3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12.6 15.8h5" fill="none" stroke="#3FB950" stroke-width="2.2" stroke-linecap="round"/>
+  <rect x="1.5" y="2.5" width="21" height="19" rx="4.5" fill="none" stroke="#2A3440" stroke-width="1"/>
+</svg>

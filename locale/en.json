@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Terminal (dsh-terminal-panel)",
+    "description": "Live read-only panel for bash, background jobs and persistent terminals across the current session, subagents and Agent Team teammates."
+  }
+}
