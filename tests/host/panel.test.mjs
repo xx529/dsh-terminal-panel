@@ -465,11 +465,9 @@ test('M2：40 个 running（各 1KB 输出）→ 首帧 32 列且每列都有输
   await panel.dispose?.()
 })
 
-test('H1-b(多 chunk)：jobs.readAt 返回多 chunk 时逐帧累计交付不重不丢（todo：当前失败，见 integration-report §13 R1）', {
-  skip,
-  todo: 'H1 修复未完整：splitDeltaAtBytes 多 chunk 部分交付越界 + limitDelta 不切 chunk，真实 jobs.readAt 多 chunk 时静默丢字节',
-}, async () => {
-  // 真实 JobOutputRead.chunks 可能是数组（F8/Dsh jobs.readAt 返回 JobChunk[]），而 H1-b 现有用例的假服务只返回单 chunk。
+test('R1 已修：jobs.readAt 返回多 chunk 时逐帧累计交付不重不丢，且每帧 nextCursor ≤ 已交付', { skip }, async () => {
+  // backend 324bb0e：splitDeltaAtBytes/limitDelta/trimChunksFrom 修复后，部分交付不再越界/丢字节。
+  // 真实 JobOutputRead.chunks 可能是数组（F8）；这里用 200B/chunk + 不可信 at（时间戳 1）覆盖退化路径。
   const SOURCE = Array.from({ length: 5000 }, (_, i) => String.fromCharCode(65 + (i % 26))).join('')
   const jobs = {
     list: () => [{ id: 'job-multi', kind: 'background', label: 'multi', owner: 'root-1', status: 'running', startedAt: 1_000, output: { total: SOURCE.length } }],
@@ -484,14 +482,29 @@ test('H1-b(多 chunk)：jobs.readAt 返回多 chunk 时逐帧累计交付不重�
   const { panel } = makePanel(baseServices({ jobs }), { maxFrameBytes: 4096 })
   let cursors = {}
   let delivered = ''
+  const frames = []
   for (let i = 0; i < 12; i += 1) {
     const r = await rpc(panel, 'panel.poll', { sessionId: 'root-1', cursors })
     assert.equal(r.ok, true, JSON.stringify(r.error))
     const run = (r.value.runs ?? []).find((x) => x.runId === 'job:job-multi')
-    delivered += run === undefined ? '' : (run.output?.job?.chunks ?? []).map((c) => c.text).join('')
+    const frameText = run === undefined ? '' : (run.output?.job?.chunks ?? []).map((c) => c.text).join('')
+    delivered += frameText
+    const cursor = r.value.nextCursors['job:job-multi']?.job
+    // 硬不变量②：每帧游标 ≤ 累计已交付字节（不得越过未交付区间）
+    if (Number.isFinite(cursor)) {
+      assert.ok(cursor <= delivered.length, `frame#${i + 1} nextCursor(${cursor}) > 累计已交付(${delivered.length})`)
+      assert.ok(cursor <= SOURCE.length, `frame#${i + 1} nextCursor(${cursor}) > 源总量(${SOURCE.length})`)
+    }
+    // 未交付完时帧级 truncated 必须为 true（client 据此立即续读）
+    if (delivered.length < SOURCE.length) {
+      assert.equal(r.value.truncated, true, `frame#${i + 1} 未交付完但 frame.truncated=false`)
+    }
+    frames.push({ text: frameText.length, cursor })
     cursors = r.value.nextCursors
     if (delivered.length >= SOURCE.length) break
   }
   assert.equal(delivered, SOURCE, `多 chunk 源必须逐字节完整交付，实际 ${delivered.length}/${SOURCE.length}`)
+  assert.equal(cursors['job:job-multi']?.job, SOURCE.length, '最终游标必须到源末尾')
+  assert.ok(frames.length >= 2, `必须多帧交付（部分交付路径），实际 ${frames.length} 帧`)
   await panel.dispose?.()
 })

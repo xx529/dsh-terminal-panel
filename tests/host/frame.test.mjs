@@ -313,10 +313,9 @@ test('H1 splitDeltaAtBytes：单 chunk 部分交付的前缀+后缀互补且不�
   assert.equal(head + tail, source)
 })
 
-test('H1 遗留 R1：splitDeltaAtBytes 多 chunk 部分交付不得越界（todo：当前越界，见 integration-report §13 R1）', {
-  skip,
-  todo: '已报 Lead：splitDeltaAtBytes 在部分交付后未 break，后续 chunk 被错误并入 delivered（真实 jobs.readAt 多 chunk 时静默丢字节）',
-}, () => {
+test('R1 已修：splitDeltaAtBytes 多 chunk 部分交付不越界（delivered+remainder=源、无丢无重）', { skip }, () => {
+  // backend 324bb0e：切到 chunk 内部后立即停止；后续 chunk 原样进 remainder。
+  // 修复前：split(3×100B, 150) → delivered=250 / remainder=50（越界 + 缺尾）。
   const split = fnOf(m, 'splitDeltaAtBytes')
   const source = 'A'.repeat(100) + 'B'.repeat(100) + 'C'.repeat(100)
   const delta = {
@@ -331,5 +330,56 @@ test('H1 遗留 R1：splitDeltaAtBytes 多 chunk 部分交付不得越界（todo
   const head = (out.delivered?.chunks ?? []).map((c) => c.text).join('')
   const tail = (out.remainder?.chunks ?? []).map((c) => c.text).join('')
   assert.equal(Buffer.byteLength(head, 'utf8'), 150, `delivered 必须恰好 150B，实际 ${Buffer.byteLength(head)}B`)
+  assert.equal(Buffer.byteLength(tail, 'utf8'), 150, `remainder 必须恰好 150B，实际 ${Buffer.byteLength(tail)}B`)
   assert.equal(head + tail, source, '前缀+后缀必须等于源（不重不丢、顺序不变）')
+  assert.equal(head, source.slice(0, 150), 'delivered 必须是源头部')
+  assert.equal(tail, source.slice(150), 'remainder 必须是源尾部（顺序不变）')
+  // 边界：deliveredBytes=0 / >= total 时互补
+  const zero = split(delta, 0)
+  assert.equal(zero.delivered, undefined)
+  assert.equal((zero.remainder?.chunks ?? []).map((c) => c.text).join(''), source)
+  const full = split(delta, 300)
+  assert.equal((full.delivered?.chunks ?? []).map((c) => c.text).join(''), source)
+  assert.equal(full.remainder, undefined)
+})
+
+test('R2 已修：trimRunOutput(allowBytes=0) 交付 0 字节输出，status/元信息保留、游标不前移', { skip }, () => {
+  // backend 324bb0e：headBytes(≤0) 返回空串（不再回退 32768）。
+  const trim = fnOf(m, 'trimRunOutput')
+  const run = hugeRun('job:zero', 5000)
+  const out = trim(run, 0, { job: 5000 })
+  const text = (out.run.output?.job?.chunks ?? []).map((c) => c.text).join('')
+  assert.equal(text, '', `allowBytes=0 时不得交付输出文本，实际 ${Buffer.byteLength(text)}B`)
+  assert.equal(out.deliveredBytes.job, 0, 'deliveredBytes 必须为 0')
+  assert.equal(out.trimmed, true)
+  assert.equal(out.run.runId, 'job:zero', '元信息/status 必须保留')
+  assert.equal(out.run.status, 'running')
+  // headBytes 边界
+  const head = fnOf(m, 'headBytes')
+  assert.deepEqual(head('abcdef', 0), { text: '', truncated: true })
+  assert.deepEqual(head('abcdef', -1), { text: '', truncated: true })
+})
+
+test('R1 帧级 truncated：某 Run 读预算耗尽（delta.truncated）时 buildPollFrame 必须标帧级 truncated', { skip }, () => {
+  // backend 324bb0e 顺带修复；client 依据帧级 truncated 立即续读（§4.3 不变量⑥）。
+  const run = makeRun({
+    runId: 'bash:trunc',
+    output: {
+      stdout: {
+        chunks: [makeChunk('h'.repeat(100))],
+        nextCursor: 100,
+        lossy: false,
+        gapBefore: false,
+        truncated: true, // 本帧读预算耗尽
+      },
+    },
+  })
+  const out = fnOf(m, 'buildPollFrame')(
+    { revision: 1, serverTime: 1, sessionId: 'root', sessions: [makeScope()], availability: {}, removed: [], entries: [{ run, output: run.output }] },
+    {},
+    { maxBytes: 65536 },
+  )
+  assert.equal(out.value.truncated, true, 'delta.truncated=true 时帧级 truncated 必须为 true')
+  assert.equal(out.value.runs.length, 1)
+  assert.equal(out.value.runs[0].truncated, true)
 })

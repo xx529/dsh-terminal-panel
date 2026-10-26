@@ -585,9 +585,40 @@ T6 §8 的 H1 复现里我们按「Tier2 整帧 JSON ≤ maxFrameBytes」判断�
 | 项 | 状态 |
 |---|---|
 | H1-a/H1-b（单 chunk）/H1-c/M2 | **已解除**（回归 PASS；默认配置与单 chunk 路径不再 livelock/错配） |
-| **R1**：`jobs.readAt` 多 chunk 部分交付丢字节（游标越过未交付字节） | **新增，必须修**（HIGH；§13.4 有复现；修后把 2 个 todo 转正并复跑） |
+| **R1**：`jobs.readAt` 多 chunk 部分交付丢字节（游标越过未交付字节） | **已解除（closed，backend `324bb0e`；§13.7 最终回归）** |
 | M1：ui-spec §3.7 两项菜单 | **已裁决不做**（contract v4.1 §12.8 + README 已知限制已落字）→ 发布口径解除 |
 | task-11 bashLive prevention 载体 | **已落地**（`cad7fa3`，`status: closed`） |
 | 真机 19 项 Unverified | **仍必须**（本次审计无真实 DSH 页面；清单见 §10） |
 
 结论：**只要 R1 修掉并回归通过，本报告的「代码侧发布前必须修」即清零**；剩余为真机验收（§10）。
+
+### 13.7 R1/R2 最终回归（closed，backend `324bb0e`）
+
+> 修复：`splitDeltaAtBytes` 切到 chunk 内部即停、后续 chunk 原样进 remainder；`headBytes(≤0)` 返回空；`limitDelta` 首块超预算切块且 `nextCursor` 只前移保留字节；`trimChunksFrom` 对不可信 `at` 退化为长度累积；`buildPollFrame` 在读预算耗尽时置帧级 `truncated`；Tier2 保底元信息超限时交付 ≤4096B 有界前缀。**未扩冻结导出面。**
+
+**变更（本任务）**：两个 todo 转正 + 更严格断言 + 新增 2 用例：
+
+| 用例 | 断言 |
+|---|---|
+| `tests/host/frame.test.mjs::R1 已修：splitDeltaAtBytes 多 chunk 部分交付不越界（delivered+remainder=源、无丢无重）` | `delivered` 恰好 150B / `remainder` 恰好 150B；`head+tail===source`；head=源头部、tail=源尾部（顺序不变）；边界 0 / ≥total 互补 |
+| `tests/host/frame.test.mjs::R2 已修：trimRunOutput(allowBytes=0) 交付 0 字节输出，status/元信息保留、游标不前移` | 0 字节输出、`deliveredBytes=0`、`trimmed=true`、status/runId 保留；`headBytes(x,0|-1) → {text:'',truncated:true}` |
+| `tests/host/frame.test.mjs::R1 帧级 truncated：某 Run 读预算耗尽（delta.truncated）时 buildPollFrame 必须标帧级 truncated` | `value.truncated===true`（client 据此立即续读，§4.3 不变量⑥） |
+| `tests/host/panel.test.mjs::R1 已修：jobs.readAt 返回多 chunk 时逐帧累计交付不重不丢，且每帧 nextCursor ≤ 已交付` | 多 chunk + 不可信 `at` 源 5000B → 逐字节累计恰好 5000B；**每帧 `nextCursor ≤ 累计已交付` 且 ≤ 源总量**；未交付完时帧级 `truncated===true`；最终游标=5000；≥2 帧部分交付 |
+
+**命令与计数（HEAD `324bb0e`）**：
+
+```bash
+node --test "tests/**/*.test.mjs"
+# → # tests 250 / # pass 250 / # fail 0 / # skipped 0 / # todo 0 ; exit 0
+node scripts/smoke-host.mjs
+# → PASS — 87/87 checks passed ; exit 0
+npm run verify
+# → check + 250/250 + 87/87 ; exit 0
+```
+
+**结论**：
+
+- R1（HIGH）**closed**：单元复现 `splitDeltaAtBytes(3×100B, 150)` → **150/150**；端到端多 chunk 源 5000B → 多帧累计 **5000/5000**，每帧游标不越过已交付、无缺尾、无重复。
+- R2（LOW）**closed**：`trimRunOutput(0)` 交付 0 字节。
+- **代码侧「发布前必须修」清零**：任务 14 起跟踪的 H1-a/b/c、M2、R1、R2 全部解除；M1 已裁决不做且已落字；task-11 bashLive 载体 closed。
+- **发布门仅剩**：§10 真机验收 19 项 Unverified（视觉/指针键盘/宿主集成/网络异常/性能），由 Lead/owner 在真实 DSH 页面逐条执行留证。
