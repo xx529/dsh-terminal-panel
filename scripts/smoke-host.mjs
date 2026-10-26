@@ -282,7 +282,7 @@ function createJobsService() {
           label,
           owner: ownerSessionId,
           status: 'running',
-          startedAt: 1000,
+          startedAt: Date.now(),
           output: { total: 0, earliest: 0 },
         },
         chunks: [],
@@ -436,6 +436,8 @@ async function main() {
     check(run4?.durationMs >= 0, 'durationMs present', run4?.durationMs)
     check(run4?.agent?.role === 'lead', 'root session agent role = lead', run4?.agent)
     check(run4?.output === undefined, 'no duplicate output when tee already delivered it', run4?.output)
+    const hello = await panel.handleRpc('panel.hello', {})
+    check(hello.value.availability.bashLive.available === true, 'bashLive becomes available after a handle was captured')
     panel.dispose()
   }
 
@@ -487,6 +489,48 @@ async function main() {
 
     const invisible = await panel.handleRpc('panel.kill', { sessionId: 'session-root', runId: 'bash:nope' })
     check(invisible.ok === false && invisible.error.code === 'run-not-found', 'invisible run → run-not-found', invisible)
+    panel.dispose()
+  }
+
+  // --------------------------------------- 2c. promoted foreground → job hand-off
+  section('2c. promoted foreground bash: ghost run hands over to the job run')
+  {
+    const shell = createShellService()
+    const rootAgent = makeAgent('session-root')
+    const jobs = createJobsService()
+    jobs.add('job-9', 'session-root', 'slow task')
+    jobs.append('job-9', 'partial output\n')
+    const mock = createMockContext({
+      services: {
+        shell,
+        tools: {},
+        jobs,
+        agents: { get: (id) => (id === 'session-root' ? rootAgent : undefined) },
+        subagents: { listDescendants: async () => [] },
+      },
+    })
+    const { panel } = apply(mock.ctx, {})
+    const exec = { callId: 'call-9', name: 'bash', arguments: { command: 'slow task' }, agent: rootAgent }
+    await mock.runToolsExecute(exec, async () => {
+      const spec = shell.resolve({ command: 'slow task', dshEnv: { DSH_SESSION_ID: 'session-root' } })
+      await shell.execute(spec)
+      return { content: [{ type: 'text', text: '' }], isError: false }
+    })
+    const first = await panel.handleRpc('panel.poll', { sessionId: 'session-root' })
+    const ghost = runOf(first.value, 'bash:call-9')
+    check(ghost !== undefined && ghost.status === 'running', 'foreground run appears while the command is still running', ghost?.status)
+    check(runOf(first.value, 'job:job-9') === undefined, 'transient foreground job is de-duplicated', first.value.runs.map((run) => run.runId))
+
+    mock.emitToolsResult(exec, {
+      content: [{ type: 'text', text: '[still running after 100ms; moved to background job job-9]' }],
+      isError: false,
+    })
+    const second = await panel.handleRpc('panel.poll', { sessionId: 'session-root', cursors: first.value.nextCursors })
+    check(runOf(second.value, 'bash:call-9') === undefined, 'ghost run is removed after promotion')
+    check(second.value.removed.includes('bash:call-9'), 'removed list tells the client to drop the ghost column')
+    const promoted = runOf(second.value, 'job:job-9')
+    check(promoted?.kind === 'job', 'promoted job becomes the single visible run', promoted?.kind)
+    check(textOf(promoted, 'job') === 'partial output\n', 'promoted job delivers its ring output', textOf(promoted, 'job'))
     panel.dispose()
   }
 
