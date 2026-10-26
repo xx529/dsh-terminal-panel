@@ -267,3 +267,33 @@ A23 行头/组头真实点击与复用 React 复用下的展开状态、A24 视�
 | 债-2 | `column.collapse` 状态机在 v8/v9 后**只服务执行网格卡片**（linger/卡片展开），与已完成行（`group.expandedIds` 纯布尔）解耦；两套展开状态并存 | `lib/client.js:945-946`（`createColumnState` arm）、`:1121-1134`（`mergeRun` 终态/恢复输出时的 collapse 合并）；已完成行 `:2609+ CompletedRow` 不读 `column.collapse` | **低**：无功能缺陷；理解/维护成本（新增开发者易误用 collapse 到已完成行） | **v10** 评估仅保留 linger 状态（或把 collapse 改名为 `cardCollapse`），删除已完成区相关 collapse 分支与 `expandCollapse/unpinCollapse` 的死调用路径 | `tests/client/v9.test.mjs` A23/A24 + `tests/client/collapse.test.mjs` + `npm run verify` |
 | 债-3（信息项，不单独立项） | 死代码的「旧测试锁定」模式本身：v7 断言把样式当契约，导致 v9 无法直接删；后续出现「替换关系」时按同一模式登记 | `tests/client/v7.test.mjs:153`、contract §0 v9「替换关系」 | 低（流程已由 AGENTS §8.1 + 复盘 P1 约束） | 随债-1/债-2 一起清理；每次升版列「替换/作废清单」 | 复盘 P1 载体检查（`grep "替换/作废" contract`）+ verify |
 
+## 15. v10 增量测试基线（T54，contract v10 / ui-spec v8）
+
+> 触发：真机反馈（边框太细 / 卡片宽窄不齐 + 最后一行单卡被拉伸 / 点「收起」卡片瞬移跳变）→ T52 Client v10。
+> 基线：`338 tests / 91 smoke`（v9）→ 本任务 **350 tests / 350 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 15.1 新增用例（12 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/client/v10.test.mjs` | 12 | A29 2px 边框（覆盖串存在/旧 1px 兼容串保留/**生效顺序** → todo 缺陷）；状态色 65%/60%/65%；A30 hover/focus 仅 border-color+inset shadow、无尺寸属性；A31 统一卡宽 grid（`display:grid` + `auto-fill`、禁 `auto-fit`、`gap:12px`、`align-content:start`、容器 `--tp-card-w`、窄容器单列、无横滚）；拖拽统一列宽（clamp 280–640、写 `prefs.defaultWidth`、双击复位 352）；A32 同步 ghost（render 期派生、无 `setExiting`、原 orderIndex splice、active 优先去重、>2 跳过 fade、180ms 清理）；FLIP（`layoutSignatureRef=activeKey|exitingKey`、测量含 ghost、ghost 注册 ref、跳过 ghost transform、reduced-motion 瞬时）；A33 reduced-motion（CSS 动画关闭 + ghost 不占位） |
+
+### 15.2 本轮发现但未修的缺陷（已报 Lead，未改 lib）
+
+| 编号 | 级别 | 缺陷 | 位置/复现 | 处理 |
+|---|---|---|---|---|
+| DEF-V10-1 | MEDIUM（视觉需求失效） | 2px 状态边框**实际不生效**：`.tp-col{border-width:2px}`/`.tp-row{border-width:2px}` 位于 1px `border` 简写**之前**，同特异性下后置简写把宽度重置回 1px（契约 v10 §「生效 2px」/ ui-spec v8 A29 不达标） | `lib/client.js:297-298`（2px）vs `:306`/`:377`（`border:1px solid …`）；`grep -n "tp-col{border-width\|tp-col{position:relative" lib/client.js` 可见顺序 | todo 用例登记（`tests/client/v10.test.mjs` A29 待修），已报 Lead；建议两条 2px 规则移到基线之后，修好后把 todo 转正式断言 |
+
+### 15.3 兼容残留（INFO，不判失败）
+
+- `lib/client.js:302` `.tp-cell{…flex:1 1 var(--tp-card-w,352px)…}` 与 `:2463` inline `flexBasis` 仍保留（T54 交接原写「移除」，实际为兼容 v9 静态断言而保留）；v10 生效布局由 grid 容器 `auto-fill` 决定，flex/flexBasis 在 grid item 下不参与列宽计算，故按「生效行为」断言通过。若 v11 清理，需同步 v9 用例断言。
+
+### 15.4 覆盖映射位置
+
+- ui-spec v8 A29–A33 ↔ 用例：`docs/testing/acceptance-matrix.md` **§15**。
+- 覆盖方式：源码级静态断言（CSS 顺序/网格/ghost/FLIP/拖拽）+ 既有 `clampColumnWidth` 纯函数边界；真实浏览器渲染、动效观感、hit-test 仍 Unverified。
+
+### 15.5 仍未覆盖（只能真机/浏览器验证）
+
+A29 真机边框粗细观感（DEF-V10-1 已修，静态级联断言 PASS；真机待验）、A30 真机 hover 视觉加粗/无抖动、A31 真实窗口 resize 下列数/最后一行单卡/窄容器单列、A32 点「收起」的单一 layout shift + 平滑滑动观感、A33 真机 reduced-motion；另既有 19 项 Unverified（`integration-report.md` §10）不变。
+

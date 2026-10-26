@@ -252,3 +252,13 @@ node tests/e2e/smoke.mjs
 | A27 | 树外 owner 升级 live（命中清 notice、meta-only→live；未命中保持 meta-only） | auto（Host 集成）+ manual | `host/v9-owner.test.mjs::A27 树外 owner 命中 live…`、`未命中 agent…`、`树内 owner 行为不变…`、`升级 live 后失联不误删` | Host **PASS**；真机队友/subagent terminal **Unverified** |
 | A28 | 诊断可见（agentsService/agentsProbe/terminalOwners 形状与取值） | auto（Host）+ manual | `host/v9-owner.test.mjs::A28 diagnostics 形状…`、`agentsAccess=property`、`agentsProbe getOk/identityOk` | Host **PASS**；真机 Network/Console **Unverified** |
 
+## 15. ui-spec v8 A29–A33 映射（v10 视觉/结构增量：2px 边框 / 统一卡宽 grid / 同步 ghost+FLIP）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A29 | 2px 状态边框（生效）+ running warn 65% / linger·completed success 60% / failed error 65% | auto（静态）+ manual | `client/v10.test.mjs::状态色板…`；`A29 2px 边框（级联顺序 = 生效 2px）：border-width:2px 规则在 1px shorthand 之后`（同特异性后者胜出 + 最后一条 border 声明为 2px）；`lib/client.js:303/:374`（1px 基线）→ `:383/:384`（2px 覆盖） | 静态 **PASS**（DEF-V10-1 已修）；真机 **Unverified** |
+| A30 | hover/focus 视觉加粗不改尺寸（inset shadow + border-color 92%，无 border-width/width/height/padding） | auto（静态） | `client/v10.test.mjs::A29 hover/focus…`（≥6 条状态 hover/focus 规则逐条校验属性白名单） | 静态 **PASS**；真机悬停 **Unverified** |
+| A31 | 统一卡宽/单卡不拉伸（grid `auto-fill` 等宽、最后一行单卡保持列宽、拖统一 `--tp-card-w` 280–640、容器 <716px 单列） | auto（静态 + clamp 纯函数）+ manual | `client/v10.test.mjs::A30 网格…`、`A30 拖拽语义…`、兼容残留 INFO | 静态 **PASS**；真实 resize/目视 **Unverified** |
+| A32 | 收起只发生一次 layout shift + 平滑滑动（ghost 原位 180ms + 其余 FLIP 200ms，无二次反向重排；同帧 >2 跳过 fade） | auto（静态/逻辑）+ manual（交互） | `client/v10.test.mjs::A31 同步 ghost…`、`FLIP：测量集合含 ghost…`、`多卡同帧移除 >2…`、`ghost 定时清理…` | 逻辑 **PASS**；真机交互 **Unverified** |
+| A33 | reduced-motion 瞬时（无 ghost 占位、无 FLIP/fade） | auto（静态）+ manual | `client/v10.test.mjs::A31 FLIP…reduced-motion 瞬时`（`prefersReducedMotion() return` + CSS 关动画 + render 期清 ghost） | 静态 **PASS**；真机 **Unverified** |
+

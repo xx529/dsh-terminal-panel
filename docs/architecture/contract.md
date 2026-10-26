@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v9）
+# dsh-terminal-panel · 架构与契约（v10）
 
-> 状态：**v9（v8 + 真机可达性/视觉增量）** — 真机反馈（已完成行点不开且仍显示倒计时 / 卡片不铺满 / 状态色不清 / TERM 全部 meta-only / 诊断不足）+ Lead 裁决；T43 Client / T44 Host 实现。v9 新增：已完成行**独立展开**（`view.group.expandedIds`，已完成行**不再渲染** v7 倒计时/进度条；样式/词典暂留，测试兼容）、执行区**按行等宽铺满**（替换 v8 固定宽自动换行）、状态色板（黄进行中/绿已完成/红失败）、terminal tier1 Agent 解析扩为 **`scopes ∪ terminal ownerSessionId`**、`diagnostics` 扩展（agentsService/agentsProbe/terminalOwners）；**§11.2 冻结表不变（53 键；v9 客户端为纯 CSS/内部实现）** + §12.12 R13/R14。
+> 状态：**v10（v9 + 视觉/结构增量）** — 真机反馈（边框太细、卡片宽窄不齐/最后一行被拉伸、点收起时卡片瞬移跳变）+ Lead 裁决；T52 Client 实现（纯客户端展示层）。v10 新增：状态边框**生效 2px**（hover/focus 用 inset shadow 视觉加粗、不改尺寸）、执行区改为 **CSS grid `auto-fill` 统一列宽**（**禁 auto-fit**；最后一行单卡保持同宽不拉伸；拖右缘 = 统一列宽 280–640）、重排动效改为**渲染期同步 ghost + 插回原槽位 FLIP**（替换 v8/v9 的晚一帧 ghost）；§11.2 **保持 53 键**；§12.12 R15/R16。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -37,6 +37,7 @@
 | v7 | 2026-10-26 | 真机缺陷驱动增量（Lead 裁决；T31 Host / T32 Client 实现）：`Run.inputs?`（terminal 输入采集）、`Run.notice?`、`Run.outputMode:'meta-only'`、`PollResult.diagnostics`（每帧必带）；终端发现**三级链路**（terminals.list → terminalController.list(sessionId) → tools/execute 旁路事件）；修订 §4.2 语义 5「agent 缺失不再删 Run」；§11 冻结表 v7 增补（T31/T32 交接后核对）；§12.11 三条新裁决；ui-spec 升 v5（标题首行/输入块/倒计时时序/抖动约束/composer 隐藏）。 |
 | v8 | 2026-10-26 | **客户端展示层增量（host 协议不变）**：客户端会话状态缓存（`SESSION_CACHE` LRU 4/TTL 30min）；Run 展示三态（running→linger→completed，**替换** v7「新终态自动展开分组」）；执行区网格自动换行 + 纵向滚动（**废弃** v5 横向滑动/滚动条/右侧溢出按钮）；fade+scale 180ms + FLIP 200ms 补位（仅 transform/opacity，reduced-motion 瞬时）；首帧前 skeleton 加载态；§11.2 冻结表 v8 增补；§12.12 R9/R10 两条新裁决；ui-spec 升 v6（A14–A20）；另含 **host 一致性补丁**（v8 追加）：`poll.resync`、`removed`/`runs` 同帧互斥 + `prune(protect)`、`revision` 回退=重建（§8.6/§12.12 R11/R12）；ui-spec 追加 A21/A22。 |
 | v9 | 2026-10-26 | **真机可达性/视觉增量（替换关系）**：已完成行展开改由 `view.group.expandedIds` 驱动、已完成行**不再渲染** v7 倒计时/进度条（样式/词典暂留，测试兼容；替换 v7 collapse 复用）；执行区**按行等宽铺满**（CSS flex，基准 352、拖 280–640、窄容器单列、无横向滚动，**替换 v8 固定宽自动换行**）；状态色板（黄=进行中/绿=已完成/红=失败）；terminal tier1 Agent 解析扩为 `scopes ∪ store terminal ownerSessionId`（树外 owner 可 `meta-only→live`）；`diagnostics` 增 `agentsService`/`agentsProbe`/`terminalOwners`；§11.2 冻结表**不变（53 键）**；§12.12 R13/R14；ui-spec 升 v7（A23–A28）。 |
+| v10 | 2026-10-26 | **视觉/结构增量（替换关系，纯客户端）**：`.tp-col`/`.tp-row` 状态边框**生效 2px**（running warn 65% / linger·completed success 60% / failed error 65%；hover/focus 用 `inset box-shadow` 视觉加粗、**不改盒尺寸**）；执行区 **CSS grid `repeat(auto-fill, minmax(min(100%, var(--tp-card-w,352px)), 1fr))` + gap:12px**（**禁 auto-fit**；所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一列宽 280–640 会话级持久化，不再支持每卡独立宽；容器 <716px 单列单卡占满为已知边界）；重排动效替换为**渲染期同步派生 ghost + 按原 orderIndex 插回槽位**，180ms 淡出后其余卡 FLIP 200ms；signature=`activeKey\|exitingKey`（不含 gridWidth），`useLayoutEffect` 比较 arm；同帧移除 >2 张跳过 fade；reduced-motion 瞬时；§11.2 **保持 53 键**；§12.12 R15/R16；ui-spec 升 v8（A29–A33）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -228,11 +229,13 @@ running ──终态──► linger（10s 滞留：倒计时 + 「收起」按�
 - **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in` / `tp-countdown` / `tp-progress`），也不再复用 `column.collapse`；对应**样式/词典暂留（测试兼容，不属于 v9 行为）**，`collapse.*` 仅作历史状态字段。
 - `removed` / `clearCompleted` / 筛选变化后，`expandedIds` 必须裁剪为仍存在的已完成 runId（`mergePoll` 已处理 removed）。
 
-#### 9.2 执行区网格按行铺满（**替换** v8「固定宽自动换行」）
+#### 9.2 执行区网格：统一卡宽 + auto-fill 铺满（**替换** v8/v9 的 flex 方案）
 
-- **实现口径（CSS flex，不是列数计算）**：`.tp-cell { flex: 1 1 var(--tp-card-w, 352px); min-width: min(280px,100%); max-width: 100% }`、`.tp-col { width: 100% }`；拖右缘调宽时写入 `--tp-card-w`/`flex-basis`（clamp 280–640，按会话记忆）。
-- **按行铺满**：每行卡片等宽拉伸填满，换行由容器宽度与基准宽决定；**不计算列数、不做 resize 重算**（`ResizeObserver` 仅用于 FLIP 补位）；窄容器单列；**无横向滚动**。
-- v8 的「固定 352 宽自动换行」**作废**；横向滑动/滚动条/溢出按钮仍作废（R9 保留，措辞改为「按行铺满」）。
+- **实现口径（CSS grid，`auto-fill`）**：`.tp-strip-track { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--tp-card-w,352px)), 1fr)); gap:12px; align-content:start; align-items:start }`；`.tp-cell { min-width:0; height:342px }`、`.tp-col { width:100% }`。**旧 `flex:1 1 …` / `min-width:min(280px,100%)` 字符串保留仅供 v8/v9 静态断言兼容，grid 下不生效**（后置 `min-width:0` 覆盖）。
+- **统一列宽**：所有卡等宽，列数/列宽由容器宽度与基准宽决定；整行铺满；**最后一行单卡保持同宽，不拉伸**（`auto-fill` 保留空轨道；**禁止 `auto-fit`**——它会把最后一行的单卡拉满）。
+- **拖右缘 = 调整统一列宽** `--tp-card-w`（clamp 280–640，会话级持久化；双击复位 352）；**不再支持每卡独立宽**（内层卡片 100% 填充单元格）。
+- 已知边界（**不是缺陷**）：容器 < **716px**（2×352 + 12 gap）时单列、单卡占满。
+- v8 的「固定 352 自动换行」、v9 的「CSS flex 每行拉伸」**作废**；横向滑动/滚动条/溢出按钮仍作废（R9 保留）。
 
 #### 9.3 状态色板（新增，明暗主题可读）
 
@@ -243,7 +246,8 @@ running ──终态──► linger（10s 滞留：倒计时 + 「收起」按�
 | 失败 | `--dsw-alias-state-error-primary`（红） |
 
 - 令牌经 Client Theme inspect 确认存在；**禁止硬编码 hex**。
-- hover/focus 只改 `opacity` / `box-shadow(inset)` 等不占布局的属性，**不得改变布局尺寸**（不抖动）。
+- **生效边框宽度 = 2px**（`.tp-col` / `.tp-row` 后置 `border-width:2px` 覆盖旧 1px；**旧 1px 字符串保留仅供 v8/v9 静态断言兼容**，文档/验收以「生效 2px」为准）。颜色 mix：running warn **65%**、linger/completed success **60%**、failed error **65%**（其余与 `--dsw-alias-border-l1` 混合）。
+- hover/focus：`border-color` 提升至 **92%** + `box-shadow: inset 0 0 0 1px`（约 45% 透明）做**视觉加粗**；**不得改 `border-width`/`width`/`height`/`padding`**（`box-sizing:border-box` + 固定 342 高，FLIP 测量不抖）。
 
 #### 9.4 terminal tier1 Agent 解析范围（host 语义变更，向后兼容）
 
@@ -260,13 +264,36 @@ running ──终态──► linger（10s 滞留：倒计时 + 「收起」按�
 
 ---
 
+### v10 视觉/结构增量（2026-10-26，Lead 裁决；T52 Client 实现；纯客户端）
+
+> 触发：真机反馈（边框太细、卡宽不齐/最后一行被拉伸、点收起时卡片瞬移跳变）+ Lead 裁决。**host 协议不变**（仅客户端 CSS/渲染）。
+
+#### 10.1 状态边框（2px 生效）
+- `.tp-col` / `.tp-row` 后置 `border-width:2px` 覆盖旧 1px；**旧 1px 字符串保留仅供 v8/v9 静态断言兼容**（文档/验收以生效 2px 为准）。
+- 颜色 mix：running warn **65%** / linger·completed success **60%** / failed error **65%**；hover/focus 提升到 92% + `inset 0 0 0 1px` 视觉加粗，**不改盒尺寸**。
+
+#### 10.2 统一卡宽 + CSS grid 铺满（替换 v9 flex）
+- `display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--tp-card-w,352px)),1fr)); gap:12px; align-content:start`；**auto-fill，禁 auto-fit**；旧 flex 字符串保留仅供旧测试断言（grid 下不生效）。
+- 所有卡等宽、整行铺满；**最后一行单卡保持同宽不拉伸**；拖右缘 = 统一 `--tp-card-w`（clamp 280–640，会话级持久化、双击复位 352），不再支持每卡独立宽。
+- 已知边界：容器 < **716px** 时单列单卡占满。
+
+#### 10.3 重排动效（同步 ghost + FLIP，替换 v8/v9）
+- 退场 ghost **渲染期同步派生**并按原 `orderIndex` 插回槽位（不再晚一帧 push 末尾）；180ms 淡出后移除，其余卡 FLIP 200ms（仅 transform/opacity）。
+- FLIP 测量 `gridItems` 全量（含 ghost）；`layoutSignatureRef = activeKey|exitingKey`（不含 gridWidth），`useLayoutEffect` 比较 arm；同帧移除 >2 张跳过 fade；reduced-motion 瞬时。
+
+#### 10.4 §11.2 / §12.12
+- §11.2 **保持 53 键**（v10 无新增纯函数导出，纯 CSS/渲染内部改动）。
+- §12.12 新增 R15（auto-fill 统一列宽/单卡不拉伸）、R16（同步 ghost FLIP）。
+
+---
+
 ## 1. 目标与非目标
 
 ### 1.1 目标（对应 ui-spec §1）
 
 - 在会话头部 View 标签栏新增「终端」tab（`conversation.view` slot，`id: terminal-panel`，`order: 30`）。
 - 聚合 **当前会话 + 子代理 + Agent Team 队友** 的 bash 前台执行、后台任务（jobs）、持久终端（terminals）输出，只读观看。
-- 进行中按**固定宽卡片网格**展示（默认 352，可拖 280–640，自动换行 + 纵向滚动，v8 取代横向列）、Run 三态（running→linger→completed，已完成为 32px 紧凑行分组）、跟随滚动、筛选、搜索、最大化只读弹窗。
+- 进行中按 **CSS grid 统一卡宽网格**展示（`auto-fill`、基准 352、拖 280–640、二维纵向滚动；v10 取代 v8/v9 的固定宽/flex 方案）、Run 三态（running→linger→completed，已完成为 32px 紧凑行分组）、跟随滚动、筛选、搜索、最大化只读弹窗。
 
 ### 1.2 非目标
 
@@ -981,6 +1008,14 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 - **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in`/`tp-countdown`/`tp-progress`），不复用 `column.collapse`；样式/词典**暂留（测试兼容）**。`removed`/`clearCompleted`/筛选变化后 `expandedIds` 裁剪为仍存在的 runId。
 - v7 真因（供回归断言）：旧 `CompletedRow` 用 `collapseVisual(column.collapse)`，`toggleRow` 在 column 缺失时 `return` → 点不开 + 仍显示「10s 后收起」。
 
+### 6.10 重排动效：同步 ghost + FLIP（v10，替换 v8/v9 晚一帧 ghost）
+
+- **ghost 同步派生**：退场卡在**同一 render 内**由 `previousActive` 与当前 `activeIds` 差集生成（不 `setState`、不依赖 passive effect），按移除前 `orderIndex` **插回原网格槽位**；`gridItems = active + ghosts`，同 id 去重且 **active 优先**。
+- **移除**：ghost 保留 180ms（fade+scale）后从 `exitingRef` 删除并触发一次重渲染；其余卡片 FLIP 200ms（仅 `transform`/`opacity`）补位。
+- **测量与触发**：FLIP 测量集合 = `gridItems` 全量（含 ghost 占位）；`render` 只写 `layoutSignatureRef = activeKey + '|' + exitingKey`，在 `useLayoutEffect` 内与 `lastSignatureRef` 比较（等价 pendingFlip arm）；**signature 不含 gridWidth** → 250ms 轮询/滚动条抖动不重复触发；宽度变化不触发 FLIP。
+- **保护**：`dragRef` 拖动中不 arm FLIP；同帧移除 **>2 张**跳过 fade（多 ghost 同槽排序不稳）；`prefers-reduced-motion: reduce` 无 ghost 占位、无 FLIP（瞬时）。
+- **已知边界**：ghost 只保留 180ms，多卡同时退场时超出 2 张不做 fade（避免长时间占位/排序抖动）。
+
 ---
 
 ## 7. 筛选
@@ -1170,7 +1205,7 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
-### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9 不变：53 键；v9 客户端改动为纯 CSS/内部实现，未新增导出）
+### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9/v10 不变：53 键；两版客户端改动均为纯 CSS/渲染内部实现，未新增导出）
 
 **仍然采用 v1 的单文件 + `__internals` 方案**（frontend 写作用域不含 `scripts/**`，禁止装打包器）：
 
@@ -1368,6 +1403,8 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | R12 | **`removed` 与 `runs` 同帧互斥，冲突以 runs 为准**；`store.prune` 增加「本帧已见」保护 | 真机①：job 结算后同帧 removed+重新 upsert 造成列表抖动 | §4.2 语义 5/9；tester 断言同帧互斥、protect 不 prune |
 | R13 | **状态色板**：进行中=黄 `--dsw-alias-state-warn-primary`、已完成=绿 `--dsw-alias-state-success-primary`、失败=红 `--dsw-alias-state-error-primary`；hover/focus 不改布局尺寸 | 真机：状态靠颜色不可辨、hover 抖动 | ui-spec v7 §2.1/§2.2 + §9 A24；tester 静态断言边框色令牌 + 无尺寸变化 |
 | R14 | **树外 owner 不由 tier1 排除**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；命中即清 notice、`meta-only→live` | 真机 TERM 全部 meta-only，根因 owner 在树外（scout T42） | §5.2/§7.2/§9.4；tester mock 树外 owner live 用例 + diagnostics.terminalOwners |
+| R15 | **网格 `auto-fill` 统一列宽**：所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一 `--tp-card-w`（280–640），不再支持每卡独立宽；**禁 auto-fit** | 真机：卡片宽窄不齐、最后一行被拉满；每卡独立宽难对齐 | ui-spec v8 §2.1/§9 A31；tester 静态断言 grid/auto-fill/gap/align-content + 拖拽写统一值 |
+| R16 | **重排动效 = 渲染期同步 ghost + 插回原槽位**（替换 v8/v9 晚一帧 ghost） | 真机：点收起卡片瞬移/二次反向重排；晚一帧 ghost 把退场卡推末尾 | ui-spec v8 §3/§9 A32；tester 断言 ghost 同步派生/原 index/FLIP 含 ghost/signature 不含 gridWidth |
 
 ---
 
@@ -1397,6 +1434,9 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v9 已完成行展开**：`view.group.expandedIds` 纯布尔；`toggleRow` 不依赖 `view.columns`；已完成行不渲染 `collapse.in`/倒计时/进度条；`removed`/`clearCompleted` 后裁剪 id。
 - [ ] **v9 tier1 树外 owner**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；命中清 notice + `meta-only→live`；未命中保持 meta-only；`diagnostics.agentsService/agentsProbe/terminalOwners` 必发。
 - [ ] **v9 执行区铺满**：CSS flex（`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}`、`.tp-col{width:100%}`），基准 352/拖 280–640、窄容器单列、无横向滚动；**不计算列数/不做 resize 重算**（仅 FLIP 用 ResizeObserver）。
+- [ ] **v10 2px 边框**：`.tp-col`/`.tp-row` 生效 `border-width:2px`（旧 1px 仅测试兼容）；running warn 65%、linger/completed success 60%、failed error 65%；hover/focus 只加 `box-shadow: inset 0 0 0 1px`、不改尺寸。
+- [ ] **v10 grid auto-fill**：`repeat(auto-fill,minmax(min(100%,var(--tp-card-w,352px)),1fr))` + gap 12 + align-content:start；**禁 auto-fit**；最后一行单卡不拉伸；拖右缘写统一 `--tp-card-w`（280–640）；容器 <716px 单列。
+- [ ] **v10 同步 ghost**：ghost 渲染期派生并插回原槽位；FLIP 测量含 ghost；`layoutSignatureRef=activeKey|exitingKey` 在 `useLayoutEffect` 比较；同帧 >2 张跳过 fade；reduced-motion 无 ghost/无 FLIP。
 
 ### 13.2 frontend（T4）v2/v3 增补
 
