@@ -344,3 +344,26 @@ A34 A/B 真机互不可见、A35 切回 A 数据完整、A36 迟到帧不闪、A
 |---|---|---|---|---|
 | V11-C1 | INFO（LOW，纵深防御） | `mergePoll` 合并 `frame.nextCursors` 时未按本会话 allowedOwners 过滤，异会话 runId 的游标键会写入本地 `state.cursors`；Host v11 已只产出本会话游标，故当前无可利用泄漏 | `lib/client.js` mergePoll 内 `next.cursors = { ...next.cursors, ...frame.nextCursors }`；复现（纯函数）：`mergePoll(makeViewState({sessionId:'root-a'}), makeFrame({sessionId:'root-a', revision:2, nextCursors:{'job:foreign':{job:5}}}))` → `state.cursors['job:foreign']` 存在 | 低：仅纵深防御缺口；v12 可顺手按 allowedOwners 过滤 nextCursors（与 runs/sessions 同源）。未改 lib，未加失败断言 |
 
+## 17. v11.1 微改：linger 滞留 10s → 3s（T65 断言同步）
+
+> 变更：用户/Lead 裁决把 linger 滞留从 10s 改为 **3s**（`lib/client.js` `LINGER_DELAY_MS=3000`）；**v7 的 `COLLAPSE_DELAY_MS=10000` 属已废弃状态机，保持不变**。本任务只同步测试期望并补边界，不改 lib。
+> 基线：`364 tests / 91 smoke`（v11）→ **365 tests / 365 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 17.1 期望变更记录（Lead 已批准；未静默放宽）
+
+| 位置（tests/client/v8.test.mjs） | 旧期望 | 新期望（v11.1） | 说明 |
+|---|---|---|---|
+| v8 常量用例 | `LINGER_DELAY_MS=10000` | **3000**；并显式断言 `COLLAPSE_DELAY_MS=10000`（不变）与 `__internals` 53 键 | 区分 linger（3s）与 v7 废弃 collapse（10s） |
+| `runPhase` 用例 | 标题/消息「10s 内」 | 「3s 内」 | 边界语义一致（deadline-1 linger / deadline completed） |
+| `lingerVisual` 用例 | deadline=6000、remaining 5000、progress 0.5（÷10000） | deadline=4000、remaining 3000、progress 1；2500ms 时 remaining 1500 / progress 0.5（÷3000）；并断言 4000ms 起 `armed=false` | progress 分母改为 3000 |
+| `pauseLinger/resumeLinger` 用例 | resume deadline=now+10000 | resume deadline=now+3000 | 暂停/恢复基于 3s |
+| `mergePoll` linger 用例 | `deadline = min(now+10000, finishedAt+10000)` | `min(now+3000, finishedAt+3000)`；历史完成阈值 >3s | 到点进 completed |
+| DEF-1 回归 | resume=+10000、remaining 回 10000 | resume=+3000、remaining 回 3000、1s 后 2000 | 暂停冻结语义不变 |
+| **新增**「linger 3s 边界」 | — | `deadline=finishedAt+3000`；3999ms 仍 linger、4000ms completed；progress 分母 3000；pause 冻结 2000ms、resume=+3000 | 覆盖任务要求的精确边界 |
+
+### 17.2 一致性核对与结论
+
+- `lib/client.js`：`LINGER_DELAY_MS=3000`、`COLLAPSE_DELAY_MS=10000`，`__internals` 仍 53 键；未发现实现缺陷。
+- 契约：`docs/architecture/contract.md` §0 v11.1 + §6.7 已同步（`min(now+3s, finishedAt+3s)`、hover/focus 重计 3s；v7 collapse 明确为废弃不生效）；ui-spec v9 A15/A17 已同步 3s；本任务已更新 `acceptance-matrix.md` A15/A16/A17 口径。
+- 真机项：A15/A16/A17 的视觉/交互仍 Unverified（3s 倒计时观感、hover 暂停、收起按钮点击），与既有 19 项清单不变。
+

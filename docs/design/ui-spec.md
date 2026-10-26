@@ -2,7 +2,7 @@
 
 > 设计稿：Figma 本地文档 “Untitled” → Page「命令实况 · UI/UX 设计」
 > A `12:2` 主视图 · B `12:240` 会话范围筛选 · C `12:674` 状态与规则 · D `12:1005` Light · E `12:895` 边界状态
-> 状态：**v9（会话隔离，契约 v11 对应）** — v1→v8 已有八轮评审；v9 处理 P0 会话隔离：任意两个会话的终端面板**互不可见**，切会话/迟到帧不得串数据或闪动。
+> 状态：**v9（会话隔离，契约 v11 对应）** — v1→v8 已有八轮评审；v9 处理 P0 会话隔离：任意两个会话的终端面板**互不可见**，切会话/迟到帧不得串数据或闪动。 **v11.1（微）**：linger 滞留 **10s→3s**（`LINGER_DELAY_MS=3000`；v7 行内收起 10s 为历史值，不生效）。
 
 ## v9 相对 v8 的变更（第九轮：P0 会话隔离，契约 v11 对应）
 
@@ -30,7 +30,7 @@
 ## v6 相对 v5 的变更（第六轮：展示层重构，契约 v8 对应）
 
 1. **执行区改为网格**：固定宽卡片（默认 352，可拖 280–640）**自动换行**、整体**纵向滚动**；**取消**横向滑动/横向滚动条/右侧 `›` 溢出按钮/剩余列数角标/「可视 3 列」——**v5 §2.1 的「横向列 + 左右滚动」条款被本节取代**（契约 §8.1/§12.12 R9）。
-2. **Run 三态**：`running` → 终态后 `linger`（滞留 10s：倒计时 + 「收起」按钮，hover/focus 暂停）→ `completed`（移入已完成分组）。**取代** v5 的「终态后行内倒计时收起 + v7 新终态自动展开分组」——自动展开分组行为**删除**（替换，不叠加；契约 §6.7/§12.12 R10）。
+2. **Run 三态**：`running` → 终态后 `linger`（滞留 3s；v6 原 10s，v11.1 起 3s；倒计时 + 「收起」按钮，hover/focus 暂停）→ `completed`（移入已完成分组）。**取代** v5 的「终态后行内倒计时收起 + v7 新终态自动展开分组」——自动展开分组行为**删除**（替换，不叠加；契约 §6.7/§12.12 R10）。
 3. **会话状态缓存**：切走 tab 再切回**首屏不空**、游标续传（模块级缓存 LRU 4 / TTL 30min；`retryToken` 变化不清空）；契约 §6.8。
 4. **动画**：离开执行区 fade+scale ≈180ms + 其余卡片 FLIP 补位 200ms（仅 transform/opacity，不改布局高度）；`prefers-reduced-motion: reduce` 瞬时。
 5. **首帧 loading ≠ 空态**：首帧未到达显示 skeleton/加载态；空态只在「连接 ok 且首帧确认 0 条」显示。
@@ -40,7 +40,7 @@
 
 1. **标题=命令第一条非空行**：列头命令行与已完成行只显示首条非空命令（折叠连续空白、超长截断 `…`、多行命令末尾 ` +N 行`）；完整原文保留 `title` 属性与输出面板。
 2. **输出区含输入块**：输出区顶部先渲染输入——bash/job 完整 `command`（每行 `$ `）；terminal `$ <name>` + `inputs`（每行 `› `）——随后分隔线 + 输出；空输出也显示输入块 + 空文案；`notice` 在输入块上方（仅 terminal，次要色、不阻断阅读）。
-3. **收起时序修正**：终态后**先展开 + 显示 Ns 倒计时（10s）**，到点才真正折叠（`expanded:false` 且 `deadline:null`）；折叠后不再渲染倒计时徽标/进度条；hover/focus 暂停与恢复语义不变；「已完成分组默认折叠」是分组行为，与行收起无关。
+3. **收起时序修正**：终态后**先展开 + 显示 Ns 倒计时（10s；**历史值，v8 起已被 linger 取代，不生效**）**，到点才真正折叠（`expanded:false` 且 `deadline:null`）；折叠后不再渲染倒计时徽标/进度条；hover/focus 暂停与恢复语义不变；「已完成分组默认折叠」是分组行为，与行收起无关。
 4. **面板高度与抖动约束**：`tp-root` 填满可用高度；运行列区固定（342 容器）+ 已完成区 `flex:1 1 auto; min-height:0; overflow:auto`；工具栏单行不换行、计数 `tabular-nums` + 固定 min-width；入场动画只在**首次挂载**播放（`data-fresh`）；倒计时徽标固定占位；跟随滚动只用容器 `scrollTop=scrollHeight`（**禁 `scrollIntoView`**）。
 5. **终端 tab 隐藏会话输入框（composer）**：终端 tab 激活且生效时隐藏 composer，切走/卸载恢复；优先官方能力，否则按 scout 方案 A 在 `[data-conversation-content]` 上 set/remove `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，**不**用 body 全局属性）；失败绝不影响其它 tab。
 6. **终端记录必须可见（数据层）**：发现链路 = `terminals.list(agent)`（agent PTY）→ `tools/execute` 事件兜底（默认有效）；`terminalController`（侧栏终端，`sidebarTerminals` 默认 false）开启时标 `sidebar` 来源，**与 agent PTY 不混排**；`meta-only` + `notice`，禁止静默 0 条（契约 §7.2/§12.11）。
@@ -67,7 +67,7 @@
 1. **运行中的活动改为横向列排列**：每个 Run 一列（宽 352，固定高度），列内输出纵向滚动；3 列正好占满主区，超过 3 个则整条列带**左右滚动**（含滚动条 + 右侧 `›` 按钮 + 角标数字）。
 2. **每列/每行的标题都直接显示 agent**：`类型标签 + agent chip（le ad / scout / backend）+ 状态 + 耗时 + 停止`，命令单独一行（mono 11px）。子代理/队友用左侧 3px 竖条与彩色 chip 区分，扫一眼就知道是谁在执行。
 3. **Tab 更名「终端」**（`id: terminal-panel`，order 30）。
-4. **自动收起**：固定 10s；鼠标悬停或键盘焦点在已完成项上时**暂停计时**，失焦/移出后**再等 10s** 才收起。
+4. **自动收起（v7 历史机制，已废弃、不生效）**：固定 10s；鼠标悬停或键盘焦点在已完成项上时**暂停计时**，失焦/移出后**再等 10s** 才收起。
 5. **默认会话范围**：全部（当前会话 + 子代理 + 队友）。
 6. **渲染**：终端类用 xterm（屏幕帧），bash / 后台任务用增量纯文本 tail。
 
@@ -106,10 +106,10 @@
 | 阶段 | 位置 | 规格 |
 |---|---|---|
 | `running` | 执行区卡片 | 正常运行卡片（标题/命令/输出/脚注/停止），不显示倒计时 |
-| `linger`（终态后 10s） | 执行区卡片 | 保留卡片 + **倒计时徽标（琥珀点 + `Ns 后移入已完成`，固定占位 min-width 152）+「收起」按钮**；hover/focus 暂停倒计时（移出/失焦后重新计 10s）；`pinned` 不 arm；到点或点「收起」→ completed |
+| `linger`（终态后 **3s**） | 执行区卡片 | 保留卡片 + **倒计时徽标（琥珀点 + `Ns 后移入已完成`，固定占位 min-width 152）+「收起」按钮**；hover/focus 暂停倒计时（移出/失焦后重新计 **3s**）；`pinned` 不 arm；到点或点「收起」→ completed |
 | `completed` | 已完成分组（执行区下方） | 32px 紧凑行（`chevron` + 类型 + agent + 首行命令 + 状态 + 耗时 + `⋯`）；**展开由 `view.group.expandedIds` 布尔集合驱动**（行头/组头均可点击），**不再渲染倒计时/进度条**（样式/词典暂留，测试兼容）；分组默认折叠、整组内滚；**边框生效 2px**（已完成=绿 success 60%、失败=红 error 65%；hover/focus 用 inset shadow 加粗不改尺寸） |
 
-> **替换关系**：v5/v7 的「终态后行内按 10s 收起 + 新终态自动展开已完成分组」被 v6 三态取代；**v7 再修订**：已完成行的 10s 倒计时/进度条**删除**，展开由 `expandedIds` 独立控制（契约 §6.9）。
+> **替换关系**：v5/v7 的「终态后行内按 10s 收起（**历史值，不生效**）+ 新终态自动展开已完成分组」被 v6 三态取代（linger=3s，v11.1 起）；**v7 再修订**：已完成行的 10s 倒计时/进度条**删除**，展开由 `expandedIds` 独立控制（契约 §6.9）。
 
 ### 2.3 工具栏
 
@@ -138,7 +138,7 @@
 15. **显示名与状态（v7）**：agent/会话名不得显示 sessionId 长串（空值 `—`）；`meta-only` 终端列必须显示 `notice` 提示行，且**不得显示「运行中」动画**；tier3 片段输出需标注「非实时全量」。
 16. **切 tab 恢复（v6）**：切走再切回时，若会话缓存命中（LRU 4 / TTL 30min）→ **首屏不空**并用缓存 view + cursors + revision 初始化，随后**游标续传**；`retryToken` 变化（重连）**不得清空** view；缓存只在 TTL/LRU/会话删除/`removed` 时失效。
 17. **resync 兜底（v6）**：缓存未命中 / `revision` 回退（Host 重载）/ 手动重试 → 发一次 `panel.poll {resync:true}`，服务端全量重发且**不产生 removed**；Host 未实现时静默降级为普通轮询（不得报错或卡死）。
-18. **linger 与「收起」（v6）**：终态后卡片在执行区滞留 10s（倒计时 + 「收起」按钮）；hover/focus 暂停倒计时，移出/失焦重新计 10s；点「收起」立即移入已完成（幂等）；`pinned` 不 arm。**不**自动展开已完成分组。
+18. **linger 与「收起」（v6；v11.1 起 3s）**：终态后卡片在执行区滞留 **3s**（倒计时 + 「收起」按钮）；hover/focus 暂停倒计时，移出/失焦重新计 **3s**；点「收起」立即移入已完成（幂等）；`pinned` 不 arm。**不**自动展开已完成分组。
 19. **FLIP/fade（v6）**：离开执行区时 fade+scale，其余卡片 FLIP 补位；动画期间不得改变布局高度（不顶动 composer）；`prefers-reduced-motion` 瞬时。
 20. **首帧加载态（v6）**：首帧未到达显示 skeleton/加载态（非空态）；空态仅在「连接 ok 且首帧确认 0 条」显示，避免 job-only 场景空/有数据跳动。
 21. **已完成行展开（v7）**：行头点击切换 `expandedIds` 中该 runId；组头点击切换 `completedCollapsed`；展开后显示输出块（输入块 + 输出，复用卡片内容）；**不渲染任何倒计时/进度条**（v7 死样式/词典暂留，测试兼容）。
@@ -174,7 +174,7 @@
 
 空态（终端字形 + 本会话还没有命令行活动）、暂停跟随浮层、已完成全部收起、输出超长（区内滚动 + 截断提示）、记录 >50 条虚拟化、断线重连游标续读；
 **v5 新增**：terminal 仅元信息态（输入块 + `notice` + 空输出文案 + 可选 tier3 片段「非实时全量」标注，不假装有实时流）、终端发现降级（可看 diagnostics 定位，不静默 0 条）、composer 已隐藏态。
-**v6 新增**：首帧加载态（skeleton；与空态区分）、切 tab 恢复态（缓存命中时首屏即有内容）、linger 滞留态（10s 倒计时 + 收起按钮）。
+**v6 新增**：首帧加载态（skeleton；与空态区分）、切 tab 恢复态（缓存命中时首屏即有内容）、linger 滞留态（3s 倒计时 + 收起按钮；v6 原 10s，v11.1 起 3s）。
 **v6 追加（host 一致性）**：job-only 场景不抖动（`removed`/`runs` 同帧互斥、本帧已见 Run 不被 prune）；Host 重载后 revision 回退自动恢复（清 view + resync，不冻住）。
 **v9 新增**：异会话迟到帧（整帧丢弃、不闪）、跨会话缓存隔离（旧版本/异会话缓存不读）、切会话瞬时态清理。
 
@@ -188,7 +188,7 @@
 
 ## 8. 已确定 vs 仍需确认
 
-已确定：Tab 名「终端」、默认全部会话、混合渲染（终端 xterm / bash·job 纯文本）、只读终端、固定 10s 收起（悬停/聚焦暂停，失焦后再计 10s）、列宽默认 352（可拖 280–640）、⤢ 最大化弹窗、已完成 32px 紧凑行且分组默认折叠、输出区滚轮独立滚动且在回底时自动恢复跟随。
+已确定：Tab 名「终端」、默认全部会话、混合渲染（终端 xterm / bash·job 纯文本）、只读终端、固定 10s 收起（v7 历史值，已废弃、不生效；当前为 linger 3s）、列宽默认 352（可拖 280–640）、⤢ 最大化弹窗、已完成 32px 紧凑行且分组默认折叠、输出区滚轮独立滚动且在回底时自动恢复跟随。
 **v5 追加已确定**：标题只显示命令第一条非空行；输出区顶部含输入块（`$ `/`› ` 前缀）+ 分隔线；倒计时仅展开态可见且固定占位；**到点才折叠**；面板填满高度（运行列固定区 + 已完成区自适应滚动，工具栏单行）；数据更新不重放动画、禁止 `scrollIntoView`；终端 tab 隐藏 composer（失败静默降级）；terminal 记录不得静默 0 条。
 **v6 追加已确定**：执行区固定宽卡片网格自动换行 + 纵向滚动（**横向滑动彻底作废**）；Run 三态 running→linger→completed（自动展开分组行为删除）；会话缓存（LRU 4/TTL 30min）切 tab 首屏不空 + 游标续传；FLIP/fade 动画 + reduced-motion 瞬时；首帧 loading ≠ 空态。
 **v6 追加（host）**：`poll {resync:true}` 全量重同步（不发 removed、可多帧收敛）；`removed`/`runs` 同帧互斥（runs 优先）+ prune protect；`revision` 回退=服务端重建→清 view + resync。
@@ -204,8 +204,8 @@
 | A2 | 输入块 | bash/job 显示完整 command（每行 `$ `）；terminal 显示 `$ name` + `inputs`（每行 `› `）；分隔线 | 浅渲染 / 视觉 |
 | A3 | 空输出仍有输入块 | 无输出时显示输入块 + 空文案，不显示空白区 | 浅渲染 |
 | A4 | notice | terminal 降级时输入块上方一行次要色提示，不阻断阅读 | 浅渲染 + 真机（manual） |
-| A5 | 收起时序 | 终态后仍展开且倒计时可见；10s 到点才折叠并清 deadline；折叠后无倒计时/进度条 | 纯函数 `collapseVisual` 单测 |
-| A6 | 暂停语义 | hover/focus 暂停；移出/失焦重新计 10s；pinned 不 arm | 纯函数单测 |
+| A5 | 收起时序（**v7 历史机制，已废弃、不生效**） | 终态后仍展开且倒计时可见；10s 到点才折叠并清 deadline；折叠后无倒计时/进度条 | 纯函数 `collapseVisual` 单测（历史断言） |
+| A6 | 暂停语义（**v7 历史机制，已废弃、不生效**） | hover/focus 暂停；移出/失焦重新计 10s；pinned 不 arm | 纯函数单测（历史断言） |
 | A7 | 高度稳定 | 新 Run/终态/行数变化时面板外框高度不变、composer 不被顶动；工具栏单行 | 纯函数（排序/counts）+ 真机目视（manual） |
 | A8 | 动画不重放 | 轮询重建不重放入场动画；`prefers-reduced-motion` 无动画 | 静态断言 + 真机（manual） |
 | A9 | 跟随滚动 | 仅容器 `scrollTop=scrollHeight`，页面不滚动；无 `scrollIntoView` | 静态断言 + 真机（manual） |
@@ -214,9 +214,9 @@
 | A12 | 显示名 | agent/会话名不显示 sessionId 长串；空值显示 `—`；rootAgent 缺失仍能列出队友 | 纯函数/集成 + 真机（manual） |
 | A13 | meta-only 不误导 | 显示 `notice` 降级提示；无「运行中」动画；tier3 片段标注「非实时全量」；`notice.code` 实际为 no-agent/read-failed（controller-unavailable 保留） | 浅渲染 + 真机（manual） |
 | A14 | 网格按行铺满（v8） | CSS grid `auto-fill`（基准 352/min 280/拖 280–640）；所有卡等宽、整行铺满；无横向滚动条/`overflow-x:auto`/`›` 溢出按钮/`scrollLeft`；窄容器单列 | 静态样式断言 + 真机目视（manual） |
-| A15 | Run 三态（v6） | 终态后进入 linger（卡片仍在执行区 + 10s 倒计时），到点才进 completed 分组；`running` 不显示倒计时 | 纯函数 `runPhase`/`lingerVisual` 单测 + 真机（manual） |
+| A15 | Run 三态（v6；v11.1 起 3s） | 终态后进入 linger（卡片仍在执行区 + **3s** 倒计时），到点才进 completed 分组；`running` 不显示倒计时 | 纯函数 `runPhase`/`lingerVisual` 单测 + 真机（manual） |
 | A16 | 「收起」按钮（v6） | linger 卡片显示「收起」；点击立即进 completed 且幂等；`pinned` 不 arm | 纯函数 + 真机（manual） |
-| A17 | hover/focus 暂停（v6） | linger 倒计时在 hover/focus 暂停，移出/失焦后重新计 10s | 纯函数 `lingerVisual` + 真机（manual） |
+| A17 | hover/focus 暂停（v6；v11.1 起 3s） | linger 倒计时在 hover/focus 暂停，移出/失焦后重新计 **3s** | 纯函数 `lingerVisual` + 真机（manual） |
 | A18 | 切 tab 恢复（v6） | 切走再切回首屏不空、游标续传；`retryToken` 变化不清空 view；LRU 4/TTL 30min 边界正确 | 纯函数/缓存单测 + 真机（manual） |
 | A19 | FLIP/fade（v6） | 离开执行区 fade+scale + 其余卡片 FLIP 200ms；仅 transform/opacity、不改布局高度；reduced-motion 瞬时 | 静态/逻辑断言 + 真机（manual） |
 | A20 | 首帧 loading（v6） | 首帧前显示 skeleton/加载态而非空态；空态仅在连接 ok 且确认 0 条并经过 **600ms 稳定窗口**后出现（job-only 不闪） | 组件分支断言 + 真机（manual） |

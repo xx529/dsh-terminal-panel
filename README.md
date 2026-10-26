@@ -27,7 +27,7 @@
 | 2 | 界面每 250ms 跳动 | 入场动画只首挂载播放；工具栏单行不换行；面板填满高度（运行列固定 + 已完成区自适应滚动）；倒计时徽标固定占位；跟随滚动只用容器 `scrollTop`（禁 `scrollIntoView`） |
 | 3 | 标题只看得到半截命令 | 标题只显示命令**第一条非空行**（折叠空白、超长 `…`、多行 ` +N 行`），完整命令在 `title` 与输出面板 |
 | 3b | 输出区看不到输入 | 输出区顶部新增**输入块**：bash/job 完整 `command`（`$ ` 前缀）；terminal `$ name` + `inputs`（`› ` 前缀）+ 分隔线；空输出仍显示；`notice` 提示行在输入块上方 |
-| 4 | 命令结束立刻收起、收起后还在倒计时 | 终态后**先展开 + 倒计时 10s，到点才折叠**（`expanded:false` 且 `deadline:null`），折叠后不再显示倒计时/进度条；新增 `collapseVisual` 纯函数 |
+| 4 | 命令结束立刻收起、收起后还在倒计时 | 终态后**先展开 + 倒计时 10s（v7 历史机制，已废弃、不生效）**，到点才折叠（`expanded:false` 且 `deadline:null`），折叠后不再显示倒计时/进度条；新增 `collapseVisual` 纯函数 |
 | 5 | 终端 tab 仍显示会话输入框 | 终端 tab 激活时隐藏 composer（优先官方能力；否则 `[data-conversation-content]` + `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`，找不到锚点静默降级）；失败不影响其它 tab，卸载幂等恢复 |
 | 6 | 行内 agent/会话名显示 sessionId 长串 | 显示名按 `sessionTitle → sessions 标题 → team/subagent 名称 → 「当前会话」` 取，空值 `—`；rootAgent 缺失仍能列出队友（`Agent` 无 `name` 字段） |
 | 7 | meta-only 列误导（看起来在运行） | 必须显示 `notice` 降级提示、**不显示「运行中」动画**；tier3 片段标注「非实时全量」 |
@@ -41,7 +41,7 @@
 | # | 变更 | 说明 |
 |---|---|---|
 | 1 | **执行区网格** | 固定宽卡片（默认 352，可拖 280–640）自动换行 + 整体纵向滚动；**横向滑动/横向滚动条/右侧 `›` 溢出按钮作废**（取代 v5 横向列） |
-| 2 | **Run 三态** | `running → linger`（终态后滞留 10s：倒计时 + 「收起」按钮，hover/focus 暂停）` → completed`（移入已完成分组）；**v7「新终态自动展开分组」删除（替换）** |
+| 2 | **Run 三态** | `running → linger`（终态后滞留 **3s**；v8 原 10s，v11.1 起 3s：倒计时 + 「收起」按钮，hover/focus 暂停）` → completed`（移入已完成分组）；**v7「新终态自动展开分组」删除（替换）** |
 | 3 | **会话状态缓存** | 模块级 `SESSION_CACHE`（LRU 4 / TTL 30min）保存 `{view,cursors,revision,savedAt}`；切 tab 回**首屏不空**、游标续传；`retryToken` 变化不清 view |
 | 4 | **动画 + 加载态** | 离开执行区 fade+scale ≈180ms + 其余卡片 FLIP 200ms（仅 transform/opacity，`prefers-reduced-motion` 瞬时）；首帧前 skeleton，**loading ≠ 空态**（避免 job-only 抖动） |
 | 5 | **Host 一致性补丁** | `panel.poll {resync:true}` 全量重同步（不发 removed）；`removed`/`runs` 同帧互斥（runs 优先，`prune(protect)` 防 job 抖动）；`revision` 回退=服务端重建 → 清 view + resync（不再冻住） |
@@ -54,7 +54,7 @@
 
 | # | 变更 | 说明 |
 |---|---|---|
-| 1 | **已完成行独立展开** | 展开由 `view.group.expandedIds` 布尔集合驱动，行头/组头均可点击；已完成行**不再渲染** 10s 倒计时/进度条（样式/词典暂留，测试兼容；修复「点不开 + 仍显示 10s 后收起」） |
+| 1 | **已完成行独立展开** | 展开由 `view.group.expandedIds` 布尔集合驱动，行头/组头均可点击；已完成行**不再渲染** 10s 倒计时/进度条（v7 历史值，不生效；样式/词典暂留，测试兼容；修复「点不开 + 仍显示 10s 后收起」） |
 | 2 | **执行区按行铺满** | CSS flex：`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}`，基准 352、拖右缘 280–640、窄容器单列，**无横向滚动**；不计算列数/不做 resize 重算；取代 v8 固定 352 自动换行 |
 | 3 | **状态色板** | 进行中黄、已完成绿、失败红（`--dsw-alias-state-{warn,success,error}-primary`）；hover/focus 不改布局尺寸 |
 | 4 | **树外 owner terminal 可 live** | tier1 Agent 解析范围扩为 `scopes ∪ terminal ownerSessionId`；树外 owner 命中 live 即读实时输出并清 `notice`（未命中仍 meta-only 可见） |
@@ -157,7 +157,7 @@ npm run verify
 16. **v11 行为变更（不是缺陷）**：树外 owner 的 terminal 不再展示（v9 升级 live 作废；可靠血缘放开为 v12 未来项）；切会话会清瞬时态并重建 view（缓存+resync 恢复首屏）。
 17. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（最后一行单卡不拉伸；容器 <716px 单列单卡占满）；拖右缘只调统一列宽；重排为同步 ghost+FLIP。
 16. **v9 行为变更（不是缺陷）**：已完成行独立展开且无倒计时；执行区按行铺满；状态色黄/绿/红；树外 owner terminal 可升级 live。
-15. **v8 行为变更（不是缺陷）**：横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 10s + 收起按钮）；切 tab 依赖 LRU 4/TTL 30min 会话缓存（第 5 个会话不保证首屏不空）。terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史/已卸载 owner 的 pty 不可回读，不计缺陷）。
+15. **v8 行为变更（不是缺陷）**：横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 3s + 收起按钮；v11.1 起）；切 tab 依赖 LRU 4/TTL 30min 会话缓存（第 5 个会话不保证首屏不空）。terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史/已卸载 owner 的 pty 不可回读，不计缺陷）。
 
 ## 目录结构
 

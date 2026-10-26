@@ -232,9 +232,9 @@ node tests/e2e/smoke.mjs
 | # | 条目 | 方式 | 用例/证据 | 状态 |
 |---|---|---|---|---|
 | A14 | 网格换行（无横向滚动/溢出按钮） | auto（静态）+ manual | `client/v8.test.mjs::A14 网格（静态）`：`.tp-strip-track{flex-wrap:wrap}`、`.tp-strip{overflow-y:auto;overflow-x:hidden}`、无 `overflow-x:auto`/`scrollLeft`/`tp-more`/`visibleIds`、`.tp-col{flex:none;height:342px}` | 结构 **PASS**；真机目视 **Unverified** |
-| A15 | Run 三态（running→linger→completed） | auto | `client/v8.test.mjs::runPhase…`、`lingerVisual…`、`mergePoll：running→终态进入 linger…`（10s 内 linger、到点 completed、running 不显示倒计时） | 纯函数 **PASS**；视觉/计时器 **Unverified** |
-| A16 | 「收起」立即完成 + 幂等；pinned 不 arm | auto | `client/v8.test.mjs::pauseLinger / resumeLinger：「收起」collapseLinger 立即完成且幂等`、`mergePoll…pinned 不 arm linger` | 纯函数 **PASS**；真实按钮点击 **Unverified** |
-| A17 | hover/focus 暂停倒计时、移出重计 10s | auto + manual | `client/v8.test.mjs::DEF-1 回归：hover/focus 暂停期间 linger 倒计时/进度冻结，resume 后回到契约语义`（暂停期间不同 now 的 remaining/progress 必须相等；resume 重计 10s 后正常递减） | 纯函数 **PASS**（DEF-1 已修）；真机悬停 **Unverified** |
+| A15 | Run 三态（running→linger→completed；**v11.1 起 linger=3s**，原 10s） | auto | `client/v8.test.mjs::runPhase…`、`lingerVisual…`、`mergePoll：running→终态进入 linger…`、`linger 3s 边界…`（3999ms 仍 linger / 4000ms completed、deadline=finishedAt+3000、progress 分母 3000） | 纯函数 **PASS**；视觉/计时器 **Unverified** |
+| A16 | 「收起」立即完成 + 幂等；pinned 不 arm（**v11.1 起 linger 窗口=3s**） | auto | `client/v8.test.mjs::pauseLinger / resumeLinger：「收起」collapseLinger 立即完成且幂等`、`mergePoll…pinned 不 arm linger`（pinned 在 3s 窗口内始终不 arm） | 纯函数 **PASS**；真实按钮点击 **Unverified** |
+| A17 | hover/focus 暂停倒计时、移出重计 **3s**（v11.1；原 10s） | auto + manual | `client/v8.test.mjs::DEF-1 回归：hover/focus 暂停期间 linger 倒计时/进度冻结，resume 后回到契约语义`（暂停期间不同 now 的 remaining/progress 必须相等；resume 重计 3s 后正常递减）＋`linger 3s 边界…`（pause 冻结/resume=+3000） | 纯函数 **PASS**（DEF-1 已修）；真机悬停 **Unverified** |
 | A18 | 切 tab 恢复（缓存命中/游标续传/LRU4/TTL30min） | auto（缓存纯函数 + 静态接线）+ manual | `client/v8.test.mjs::createSessionCache…`（LRU4/TTL 边界/命中刷新/缓存不重建 view）、`A18/A21 缓存接线（静态）` | 纯函数 **PASS**；真实切 tab 时序 **Unverified** |
 | A19 | FLIP/fade（180/200ms、仅 transform/opacity、reduced-motion） | auto（静态/逻辑）+ manual | `client/v8.test.mjs::A19`（card-out 180ms、`FLIP_MS=200`、keyframes 仅 opacity/transform、reduced-motion 跳过）+ `flipDeltas` 位移/新增/删除 | 逻辑 **PASS**；观感 **Unverified** |
 | A20 | 首帧 loading ≠ 空态（600ms 稳定窗口） | auto（静态）+ manual | `client/v8.test.mjs::A20`（skeleton 分支先于空态、`awaitingFirstFrame`、`setEmptySettled(true), 600`） | 结构 **PASS**；真机过渡 **Unverified** |

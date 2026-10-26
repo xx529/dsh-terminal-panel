@@ -1,6 +1,6 @@
 # dsh-terminal-panel · 架构与契约（v11）
 
-> 状态：**v11（v10 + P0 会话隔离）** — 真机/审计发现**跨会话数据泄漏**（单实例单 store 却按全局选择帧/增量/removed/prune/resync），Lead 裁决 v10→v11（协议/安全语义变更）；T57 Host / T58 Client 实现。v11 新增：**所有帧与 store 操作必须按 `sessionIds`（会话树：root+子代理+队友）隔离**（§14）；`terminalScopes` 收紧为**只等于会话树**（v9「树外 owner 升级 live」**作废**，R17）；diagnostics 增 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`；客户端纵深防御（异会话帧整帧丢弃、`mergePoll` 过滤、`SESSION_CACHE_VERSION='v11-1'`+sanitize、切会话清瞬时态）；§11.1.1 冻结表更新、§11.2 **保持 53 键**；§12.12 R17。
+> 状态：**v11（v10 + P0 会话隔离）** — 真机/审计发现**跨会话数据泄漏**（单实例单 store 却按全局选择帧/增量/removed/prune/resync），Lead 裁决 v10→v11（协议/安全语义变更）；T57 Host / T58 Client 实现。v11 新增：**所有帧与 store 操作必须按 `sessionIds`（会话树：root+子代理+队友）隔离**（§14）；`terminalScopes` 收紧为**只等于会话树**（v9「树外 owner 升级 live」**作废**，R17）；diagnostics 增 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`；客户端纵深防御（异会话帧整帧丢弃、`mergePoll` 过滤、`SESSION_CACHE_VERSION='v11-1'`+sanitize、切会话清瞬时态）；§11.1.1 冻结表更新、§11.2 **保持 53 键**；§12.12 R17。 **v11.1（微）**：linger 滞留 **10s→3s**（`LINGER_DELAY_MS=3000`；v7 的 `COLLAPSE_DELAY_MS=10000` 属已废弃路径，不受影响）。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -39,6 +39,7 @@
 | v9 | 2026-10-26 | **真机可达性/视觉增量（替换关系）**：已完成行展开改由 `view.group.expandedIds` 驱动、已完成行**不再渲染** v7 倒计时/进度条（样式/词典暂留，测试兼容；替换 v7 collapse 复用）；执行区**按行等宽铺满**（CSS flex，基准 352、拖 280–640、窄容器单列、无横向滚动，**替换 v8 固定宽自动换行**）；状态色板（黄=进行中/绿=已完成/红=失败）；terminal tier1 Agent 解析扩为 `scopes ∪ store terminal ownerSessionId`（树外 owner 可 `meta-only→live`）；`diagnostics` 增 `agentsService`/`agentsProbe`/`terminalOwners`；§11.2 冻结表**不变（53 键）**；§12.12 R13/R14；ui-spec 升 v7（A23–A28）。 |
 | v10 | 2026-10-26 | **视觉/结构增量（替换关系，纯客户端）**：`.tp-col`/`.tp-row` 状态边框**生效 2px**（running warn 65% / linger·completed success 60% / failed error 65%；hover/focus 用 `inset box-shadow` 视觉加粗、**不改盒尺寸**）；执行区 **CSS grid `repeat(auto-fill, minmax(min(100%, var(--tp-card-w,352px)), 1fr))` + gap:12px**（**禁 auto-fit**；所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一列宽 280–640 会话级持久化，不再支持每卡独立宽；容器 <716px 单列单卡占满为已知边界）；重排动效替换为**渲染期同步派生 ghost + 按原 orderIndex 插回槽位**，180ms 淡出后其余卡 FLIP 200ms；signature=`activeKey\|exitingKey`（不含 gridWidth），`useLayoutEffect` 比较 arm；同帧移除 >2 张跳过 fade；reduced-motion 瞬时；§11.2 **保持 53 键**；§12.12 R15/R16；ui-spec 升 v8（A29–A33）。 |
 | v11 | 2026-10-26 | **P0 会话隔离（协议/安全语义变更）**：单实例单 store 下，**poll 帧/增量消费/removed/prune/resync 全部按 `sessionIds`（本会话树）隔离**（`frameSelection({sessionIds})`/`takeEntries({sessionIds})`/`drainRemoved(sessionIds)`/`prune(now,{protect,sessionIds})`/`resync({sessionIds})`/`mergeClientCursors(cursors,sessionIds)`）；`removed` 改为 `Map<runId,ownerSessionId>` 按会话 drain；`terminalScopes` 收紧为**只等于会话树**（**v9「树外 owner 升级 live」作废**；树外 owner 不展示/不解析，计 `droppedForeignRuns`；`tests/host/v9-owner.test.mjs` 3 条 A27 已按 v11 改写，Lead 批准，见 `docs/testing/report.md` §16.2）；diagnostics 增 5 字段；客户端异会话帧整帧丢弃 + `mergePoll` 过滤 + `SESSION_CACHE_VERSION="v11-1"` + sanitize + 切会话清瞬时态；§11.1.1 更新签名、§11.2 保持 53 键；§12.12 R17；ui-spec 升 v9（A34–A38）。 |
+| v11.1 | 2026-10-26 | **（微）linger 滞留 10s→3s**（Lead 裁决/用户需求，纯客户端展示层）：`lib/client.js` `LINGER_DELAY_MS=3000`；§6.7 三态时序（`min(now+3s, finishedAt+3s)`、hover/focus 恢复重新计 3s）、§11.2 `LINGER_DELAY_MS`/`resumeLinger`、§12.12 R10 同步；**v7「10s 后收起」`COLLAPSE_DELAY_MS=10000` 属已废弃历史路径，保留且不生效**。ui-spec v9 条目 A15–A17 同步 3s。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -188,8 +189,8 @@ waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只�
 #### 8.3 Run 展示三态（**替换** v7「新终态自动展开分组」）
 
 ```text
-running ──终态──► linger（10s 滞留：倒计时 + 「收起」按钮；hover/focus 暂停）
-                     ├── 10s 到 ──► completed（移入已完成分组）
+running ──终态──► linger（3s 滞留：倒计时 + 「收起」按钮；hover/focus 暂停）
+                     ├── 3s 到 ──► completed（移入已完成分组）
                      └── 点「收起」──► completed（立即、幂等）
 ```
 
@@ -924,7 +925,7 @@ interface ViewState {
 - 顺序稳定：新增/删除不得重排已有列（避免横向滚动位置跳动）。
 - 列数 > 3 时：容器 `overflow-x:auto`，右侧浮动 `›` + 剩余数角标；滚到最右隐藏 `›`（ui-spec §2.1）。
 
-### 6.3 自动收起状态机（固定 10s）
+### 6.3 自动收起状态机（固定 10s；**v7 历史机制，v8 起由 linger 取代，v11.1 linger=3s；本状态机仅旧断言兼容、不生效**）
 
 ```
         ┌────────────────────────┐
@@ -983,12 +984,12 @@ interface ViewState {
 - 打开时取 `focusRunId = 该 Run` 让 RPC 优先续读；关闭恢复。
 - 焦点：`role="dialog" aria-modal="true"`，打开 focus 容器，Esc 关闭，卸载恢复焦点到触发按钮。
 
-### 6.7 Run 展示三态（v8，纯客户端；替换 v7「新终态自动展开分组」）
+### 6.7 Run 展示三态（v8；v11.1 起 linger=3s，替换 v7「新终态自动展开分组」）
 
 ```
-running ──终态──► linger ──(10s 到期 | 点「收起」)──► completed
+running ──终态──► linger ──(3s 到期 | 点「收起」)──► completed
                     │
-                    ├─ hover/focus：暂停倒计时（移出/失焦后重新计 10s，同 v4 收起语义）
+                    ├─ hover/focus：暂停倒计时（移出/失焦后重新计 3s；v8 原 10s，v11.1 微调）
                     └─ pinned：不 arm linger（保持展开，直到手动收起）
 ```
 
@@ -1013,8 +1014,8 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 
 - 状态：`view.group.expandedIds: string[]`（已完成行展开集合，纯布尔）；`toggleRow(runId)` 增删 id，**不读/不依赖 `view.columns[runId]`**。
 - 交互：行头点击切换该行；组头点击切换 `completedCollapsed`（组折叠）；组展开时行按 `expandedIds` 渲染。
-- **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in`/`tp-countdown`/`tp-progress`），不复用 `column.collapse`；样式/词典**暂留（测试兼容）**。`removed`/`clearCompleted`/筛选变化后 `expandedIds` 裁剪为仍存在的 runId。
-- v7 真因（供回归断言）：旧 `CompletedRow` 用 `collapseVisual(column.collapse)`，`toggleRow` 在 column 缺失时 `return` → 点不开 + 仍显示「10s 后收起」。
+- **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in`/`tp-countdown`/`tp-progress`；**v7 历史值，已废弃、不生效**），不复用 `column.collapse`；样式/词典**暂留（测试兼容）**。`removed`/`clearCompleted`/筛选变化后 `expandedIds` 裁剪为仍存在的 runId。
+- v7 真因（供回归断言）：旧 `CompletedRow` 用 `collapseVisual(column.collapse)`，`toggleRow` 在 column 缺失时 `return` → 点不开 + 仍显示「10s 后收起」（**v7 历史值，不生效**）。
 
 ### 6.10 重排动效：同步 ghost + FLIP（v10，替换 v8/v9 晚一帧 ghost）
 
@@ -1098,7 +1099,7 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 | `DEFAULT_OVERLAP_LINES` | 32 | `lib/host/terminal-window.mjs` | terminal 行增量尾重叠去重窗口 |
 | `TERMINAL_PAGE_LINES` | 400 | `lib/host/terminal-window.mjs` | 行读取页大小的默认值（可被 `terminalPageLines` 覆盖） |
 | `finalOutputBytes` | 32768 | `parseToolResultText(result, maxBytes=32768)` 的参数默认 | final-only 终态输出截断上限 |
-| Client 端常量 | `IDLE_POLL_DEFAULT_MS=1000`、`RPC_TIMEOUT_MS=5000`、`FRAME_COMMIT_MS=60`、`BACKOFF_MS=[250,500,1000,2000,5000]`、`COMPLETED_RETAIN_MS=300000`、`MAX_RETAINED_COMPLETED=200`、`SCROLLBACK_LINES=600`、`COLLAPSE_DELAY_MS=10000`、`FOLLOW_TOLERANCE_PX=4`、`MAX_RUNS=32` | `lib/client.js` | Client 内部常量（Host 不配置；`hello.limits` 只透出 `maxFrameBytes`/`maxRuns`/`pollHintMs`） |
+| Client 端常量 | `IDLE_POLL_DEFAULT_MS=1000`、`RPC_TIMEOUT_MS=5000`、`FRAME_COMMIT_MS=60`、`BACKOFF_MS=[250,500,1000,2000,5000]`、`COMPLETED_RETAIN_MS=300000`、`MAX_RETAINED_COMPLETED=200`、`SCROLLBACK_LINES=600`、`COLLAPSE_DELAY_MS=10000`（废弃）、`LINGER_DELAY_MS=3000`、`FOLLOW_TOLERANCE_PX=4`、`MAX_RUNS=32` | `lib/client.js` | Client 内部常量（Host 不配置；`hello.limits` 只透出 `maxFrameBytes`/`maxRuns`/`pollHintMs`） |
 
 `routePath` **不做配置**（固定 `/terminal-panel/rpc`），避免双端漂移。
 
@@ -1274,11 +1275,11 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | (v8) | `runPhase(run, column, now?)` | → `'running' \| 'linger' \| 'completed'`（终态且 linger state 有 deadline 未到/暂停/pinned → linger） |
 | (v8) | `lingerVisual(state, now?)` | → `{ visible:boolean; remaining:number; progress:number; armed:boolean }`（paused 冻结 remaining；到点 armed=false） |
 | (v8) | `pauseLinger(state, now?)` | → `state`（`paused:true`，冻结倒计时并记录 `frozenRemainingMs`；**`now?` 为可选注入时钟，缺省 `Date.now()`**） |
-| (v8) | `resumeLinger(state, now?)` | → `state`（`paused:false`，`deadline=now+10s`，重新计满 10s） |
+| (v8) | `resumeLinger(state, now?)` | → `state`（`paused:false`，`deadline=now+3s`，重新计满 3s；v11.1 前为 10s） |
 | (v8) | `collapseLinger(state)` | → `null`（「收起」按钮：立即结束滞留；幂等，空输入安全） |
 | (v8) | `createSessionCache(options?)` | `({ max?, ttlMs?, now? }) => { get(sessionId, now?): entry\|undefined; set(sessionId, entry, now?): void; delete(sessionId): boolean; clear(): void; size(): number }`（LRU 4 / TTL 30min，命中刷新最近使用） |
 | (v8) | `SESSION_CACHE` | 模块级单例缓存（`createSessionCache()`，跨 View 挂载保留、插件卸载清） |
-| (v8) | `LINGER_DELAY_MS` | `10000`（滞留时长常量） |
+| (v8) | `LINGER_DELAY_MS` | `3000`（滞留时长常量；v11.1 前为 10000） |
 | (v8) | `CARD_EXIT_MS` / `FLIP_MS` | `180` / `200`（淡出时长 / FLIP 补位时长） |
 | (v8) | `flipDeltas(prevRects, nextRects)` | → `Record<runId, { dx:number; dy:number } \| null>`（新增/删除/无位移 → null；仅返回有位移项） |
 | 自动收起 | `createCollapseState()` | → `CollapseState` |
@@ -1417,7 +1418,7 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | # | 裁决 | 理由 | 验收载体 |
 |---|---|---|---|
 | R9 | **执行区横向滑动/横向滚动条/右侧 `›` 溢出按钮废弃**，改为固定宽卡片自动换行 + 纵向滚动 | 真机反馈：列多时横向滑动难用、找不到溢出列；纵向网格更自然 | ui-spec v6 §2.1/§9 A14；tester 静态断言无 `overflow-x`/`scrollLeft`/`›` 溢出按钮/横向滚动条伪元素 |
-| R10 | **Run 三态 linger 取代 v7「新终态自动展开分组」**（替换，非叠加） | 真机反馈：终态瞬间跳入已完成导致跳动、刚结束的任务难找；10s 滞留 + 「收起」按钮更可控 | ui-spec v6 §2.2/§9 A15–A17；tester 断言 `runPhase`/`lingerVisual`/收起 reducer |
+| R10 | **Run 三态 linger 取代 v7「新终态自动展开分组」**（替换，非叠加） | 真机反馈：终态瞬间跳入已完成导致跳动、刚结束的任务难找；3s 滞留（v11.1 起；v8 原 10s）+ 「收起」按钮更可控 | ui-spec v6 §2.2/§9 A15–A17；tester 断言 `runPhase`/`lingerVisual`/收起 reducer |
 | R11 | **`revision` 回退 = 服务端重建**：客户端清本地 view + 发一次 `resync:true`（旧语义 `<=` 丢弃会让 Host/插件重载后面板永久冻住） | 真机②：重载后面板停止更新，需刷新页面 | §4.2 语义 6 / §6.8；tester 断言 `isRevisionRollback` + 组件清 view + resync 只发一次 |
 | R12 | **`removed` 与 `runs` 同帧互斥，冲突以 runs 为准**；`store.prune` 增加「本帧已见」保护 | 真机①：job 结算后同帧 removed+重新 upsert 造成列表抖动 | §4.2 语义 5/9；tester 断言同帧互斥、protect 不 prune |
 | R13 | **状态色板**：进行中=黄 `--dsw-alias-state-warn-primary`、已完成=绿 `--dsw-alias-state-success-primary`、失败=红 `--dsw-alias-state-error-primary`；hover/focus 不改布局尺寸 | 真机：状态靠颜色不可辨、hover 抖动 | ui-spec v7 §2.1/§2.2 + §9 A24；tester 静态断言边框色令牌 + 无尺寸变化 |
