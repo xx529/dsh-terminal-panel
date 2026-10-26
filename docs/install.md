@@ -91,7 +91,35 @@ interface ChangeResult {
 | V2 | Host 行已激活 | `cordis_inspect_query`（Host `Config.listConfigs`，`name:'dsh-terminal-panel'`） | 能查到条目；无 `failed` 诊断 |
 | V3 | 展示元数据 | 插件列表 / bundle 详情 | 标题/描述来自 `locale/zh.json`（中文界面）或 `locale/en.json`；图标为 `icon.svg` 渲染结果（非默认图） |
 | V4 | Client bundle 真的到达浏览器（U4） | DevTools Console：`window.__DSH_BOOT__`；Network：`/plugins?…` / `/plugins/dsh-terminal-panel/client.js` | boot 图含 `dsh-terminal-panel` 行；`/plugins?…` 200；产物含 `__ModuleLoader__`、`id:"dsh-terminal-panel"` |
-| V5 | RPC 路由可用 | 点「终端」tab → Network | `POST terminal-panel/rpc` → `200`，body `{"ok":true,…}`；404 见 §5 |
+| V5 | RPC 路由可用 | **页面 DevTools Console 执行下面 fetch**（同源自动带 cookie），或点「终端」tab 后 Network 过滤 `terminal-panel` | `200` + `{"ok":true,"value":{"protocol":1,…}}`；**不要用无 cookie 裸 curl 的 405/401 当判据**（见 §3.1.1） |
+
+#### 3.1.1 RPC 路由验证口径（H2 教训：无 cookie 裸 curl 不能判定路由）
+
+桌面 Host 的 HTTP 行为（真机实测）：
+
+| 请求 | 响应 | 含义 |
+|---|---|---|
+| `POST /terminal-panel/rpc`（**无 cookie**） | **405，空 body** | 路由**未注册**（Host 半端没挂上：装配失败 / default export / apply 返回对象 / 未重启加载新代码） |
+| `POST /terminal-panel/rpc`（**无 cookie**） | **401 JSON** `{"ok":false,"error":{"code":"unauthorized",…}}` | 路由**已存在**，只是被 `connection` 认证栅栏拒绝（不是失败信号） |
+| `POST /api/*`（无 cookie） | **401** 纯文本 `unauthorized` | 与插件无关，是宿主 `/api` 网关行为 |
+| `GET /任意缺失路径` | 404 | 静态资源对照 |
+
+所以**唯一通过判据是带 cookie 的 200**。在已登录的 DSH 页面打开 DevTools Console 执行：
+
+```js
+// 同源 fetch 默认带 session cookie（credentials: 'same-origin'）
+await (await fetch('/terminal-panel/rpc', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  credentials: 'include',
+  body: JSON.stringify({ reqId: 'verify-1', method: 'panel.hello', params: {} }),
+})).json()
+// 期望：{ ok: true, value: { protocol: 1, hostTime: …, capabilities: {…}, limits: {…}, availability: {…} } }
+```
+
+或点「终端」tab 后在 Network 面板过滤 `terminal-panel`：看 `POST terminal-panel/rpc` 的 status 与 response（200 + `ok:true`）。
+
+> **Plugin Manager 显示 active ≠ 插件工作**：H2/H2b 故障下插件行是 active，但路由从未注册（405 空 body）。排障顺序：405 → 查 `lib/index.js` 导出形态与 `apply` 返回值（contract §13.5 自检）；401 → 刷新页面换 cookie；200 → Host 半端正常，问题在 Client 半端（看 Console/`window.__DSH_BOOT__`）。
 
 ### 3.2 功能层（ui-spec v4 验收，正式矩阵在 `docs/testing/acceptance-matrix.md`）
 
@@ -138,8 +166,10 @@ interface ChangeResult {
 | tab 不出现（已开始会话） | 插件未启用；Client bundle 未到达（U4）；slot entry crashed | 查 V1/V4；Console 搜 `slot entry crashed in 'conversation.view'` |
 | 面板空白/报错 | `lib/client.js` 运行期异常 | `node --check`；Console 看堆栈；修好后重启 + 刷新 |
 | 面板显示「Host 半端未加载」 | Host 行未激活（缺 `webServer`/`connection` 或 `lib/index.js` 异常） | 查 V2；`plugin_manager` 重装看 `application` |
-| RPC 404 | 路由未注册 / 页面在子路径且相对 fetch 未命中 | 见 contract §4.1 回退逻辑；V5 用 Network 确认 URL |
-| RPC 401/403 | 浏览器 cookie 过期 / Host-Origin 栅栏 | 刷新页面重新换 cookie；确认走 loopback host `[FACT]` connection README |
+| **Plugin Manager 显示 active，但 RPC 405 空 body** | Host 插件形态违反 cordis 契约（`export default` 丢 inject / `apply` 返回对象 → `Invalid effect` 全回滚 / 装配失败被吞） | 按 contract §13.5 自检 `lib/index.js`（无 default、apply 返回 undefined、失败 rethrow）；重启 DSH 后按 §3.1.1 用页面 fetch 复验 200 |
+| RPC **405 空 body**（无 cookie） | 路由未注册：Host 半端未加载 / 装配失败 / 未重启加载新代码 | 查 §3.1 V2 与 §3.1.1；重启 DSH 桌面版后复验 |
+| RPC **401 JSON**（无 cookie） | 路由存在，只是缺认证 cookie（正常现象） | 用页面内 fetch（带 cookie）复验；或刷新页面重新换 cookie |
+| RPC 200 但面板空白 | Client 半端异常 / slot 未渲染 / blank session | 查 V4 与 Console（`slot entry crashed in 'conversation.view'`）；blank session 属宿主行为 |
 | 某 chip 置灰 | 对应来源服务缺失或跨会话读取被拒（scout U6） | 面板 tooltip 有原因；换有 jobs/terminals 服务的 profile 复核 |
 | bash 列只有终态 | **预期行为**（无 ShellExecution 句柄，contract §12.7） | 引导用后台 job 获取增量输出 |
 | 终端输出「较早输出已被裁剪」 | scrollback 裁剪（默认 10000 行/4MiB） | 预期行为，非错误 |

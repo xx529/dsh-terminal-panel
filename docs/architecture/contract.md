@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v5）
+# dsh-terminal-panel · 架构与契约（v6）
 
-> 状态：**v5（v4.1 + H1/M2 实现对齐）** — backend 修复（commit `4bc721e`）落地 H1（Tier2 单 Run livelock）与 M2（选择集/预算错配）：新增 4 个 additive 导出与 store 侧 additive 方法与常量，Lead 已批准扩冻结表；本版补齐 §11.1 冻结表、§0 v5 变更记录与 §4.3 实现对齐（部分交付后缀回退、`bounded.nextCursors` 唯一提交来源、`dropStreak` 保底、`planReads` 公平分配）。
+> 状态：**v6（v5 + Host 插件装载契约 H2/H2b）** — 真机安装暴露「Plugin Manager active 但路由不存在」，根因是 Host 半端 ESM 导出形态与 `apply` 返回值违反 cordis 插件契约；本版补 §0 v6 记录、§13.5 发布前自检项与 docs/install.md 的验证方式修正。**冻结表不动**。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -33,6 +33,7 @@
 | v4 | 2026-10-26 | 附录补丁（仅文档）：①`computeTerminalDelta` 的 **k<0** 才 lossy（k===0 是正常探尾，不标 lossy）；②terminal `truncated` = 输出未完整覆盖（`page.truncated \|\| lineEnd < totalLines`），不是分页未取完；③非 live root 会话返回**降级帧**而非 `session-not-found`（仅 sessionId 语法非法才 coded 错误）；④tester C1/C2/C5 定案，C3/C4 标 closed。 |
 | v4.1 | 2026-10-26 | T6 集成审计落字（仅文档）：①H1 保底规则（单 Run 元信息截断 ≤4 KiB + `metaTruncated`；Tier2 至少保留 1 条 Run；`nextCursors` 只前移实际交付字节）；②M1 裁决「在对话中定位 / 在终端中打开（仅终端）」本期不做（§12.8）；③M2 实现约束「预算调度与选择集必须是同一集合」；④LOW L1–L5 已知差异表（§12.10）。 |
 | v5 | 2026-10-26 | H1/M2 实现对齐（backend `4bc721e`）：§11.1 冻结表增补 4 个 additive 导出（`pickFallbackRun`/`runOutputTextBytes`/`trimRunOutput`/`splitDeltaAtBytes`）与 store 侧 additive 导出/方法（`META_MAX_BYTES`/`truncateMetaText`/`serializeRun`/`frameSelection`/`selectForFrame`/`commitCursorsFromFrame`）；`boundFrameDetailed` 补可选第 3 参 `{preferRunId}`；§4.3 对齐部分交付后缀回退、`bounded.nextCursors` 唯一提交来源、`dropStreak` 保底、`planReads` 公平分配。 |
+| v6 | 2026-10-26 | Host 插件装载契约（H2/H2b，真机故障驱动）：ESM **只许具名导出 `name/inject/apply`，禁 `export default`**；`apply` **必须返回 `undefined`**（返回对象 → cordis `Invalid effect` → effects 回滚 → active 但路由不存在）；装配失败必须 `logger.error` + **rethrow**；§13.5 新增发布前自检项；docs/install.md 验证方式修正（无 cookie 裸 curl 不能判路由）。**冻结表未改动**。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -85,6 +86,25 @@
 | Tier3 | 修复后单 Run JSON 有硬上界，Tier2 已能保底交付，**Tier3 成为不可达的最后防线**（仅异常防御） | `lib/host/route.mjs`；§4.3 |
 
 **v5 additive 导出（Lead 已批准扩冻结表，详见 §11.1/§11.1.1）**：`frame.mjs` 的 `pickFallbackRun`/`runOutputTextBytes`/`trimRunOutput`/`splitDeltaAtBytes`；`store.mjs` 的 `META_MAX_BYTES`/`truncateMetaText`/`serializeRun` 与 store 实例方法 `frameSelection`/`selectForFrame`/`commitCursorsFromFrame`（后三者为 `createRunStore()` 返回对象上的方法，不是模块顶层导出）。
+
+### v6 Host 插件装载契约（H2/H2b，2026-10-26 真机故障驱动）
+
+| # | 规则（违反即故障） | 违反后果 / 真机证据 |
+|---|---|---|
+| H2a | Host 半端 ESM **只允许具名导出** `name` / `inject` / `apply`；**禁止 `export default`** | loader 会把 ESM 默认导出（函数）当作插件本体 → `name`/`inject` 等具名元数据全部丢失 → `apply` 访问 `ctx.webServer` 抛 `cannot get property "webServer" without inject`。对照可用先例：`@local/dsh-popout-window` 同样只有 3 个具名导出 |
+| H2b | **`apply` 必须返回 `undefined`**（本项目约定；cordis 只接受 `undefined`/清理函数/thenable/Iterator/AsyncIterator 作为 effect） | 返回普通对象 → cordis 4.0.5 抛 **`TypeError: Invalid effect`** → 该 fiber 的**全部 effects 回滚** → Plugin Manager 行仍显示 **active**，但 `POST /terminal-panel/rpc` **405 空 body**（路由从未注册，隔离复现 `route registered:false`） |
+| H2c | 装配失败必须 **`logger.error` + `throw`**（禁止 `logger.warn` 后静默 `return`） | 静默失败会让 Plugin Manager 显示 active 而实际不可用，排障被误导；抛出后 fiber 进入 failed，Plugin Manager 可见 |
+| H2d | 路由注册、依赖注入、capture 装配失败都必须让 fiber 可见失败；cleanup 仍要幂等 | 部分失败时已注册的 effect 需可清理，避免残留路由/监听 |
+
+真机证据（2026-10-26，修前/修后同一 `POST /terminal-panel/rpc`、无 cookie）：
+
+| 状态 | 响应 | 含义 |
+|---|---|---|
+| 修复前 | **405，空 body** | 路由未注册（尽管 Plugin Manager 行 active）→ 即 H2a/H2b 故障表现 |
+| 修复后 | **401** `{"ok":false,"error":{"code":"unauthorized","message":"request rejected by the host connection fence"}}` | 路由已存在，被 `connection` 认证栅栏拒绝（**不是** 405） |
+| 隔离复现（cordis 4.0.5） | `TypeError: Invalid effect` + `route registered:false` | 确认 `apply` 返回对象是 H2b 的直接根因 |
+
+代码位置与修复：`lib/index.js`（H2 修复 commit `32bbaf4`；H2b 修复 commit `d51ea5f`），入口注释已写明上述契约。发布前自检见 §13.5；安装侧验证方式见 `docs/install.md` §3.1 V5。
 
 ---
 
@@ -1066,3 +1086,14 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - §12 六项裁决在实现中可观察到（无角标/无 xterm/`final-only`/默认全部/HTTP 路由/元数据文件存在）；
 - **v3 三项一致化**：§4.3 三级预算与 `lib/host/{frame,route}.mjs` 一致、§4.2 语义 5 与 `lib/client.js` `mergePoll` 一致、§11.1/§11.2 冻结表与 `lib/host/*.mjs` 导出 / `lib/client.js` `__internals` 逐项一致；
 - docs/install.md 的安装步骤与 §8/§12.9 一致。
+
+### 13.5 Host 插件形态自检（发布前必查，v6）
+
+> 起因：H2/H2b 导致「Plugin Manager active 但路由不存在」，静态检查 + 真机 200 才能闭环。
+
+- [ ] `grep -n "export default" lib/index.js` → **无输出**（H2a）
+- [ ] `grep -n "export const name\|export const inject\|export function apply" lib/index.js` → 三个具名导出齐全
+- [ ] `apply` 末尾为 `return undefined`（或不存在会被 cordis 当作 effect 的返回对象）（H2b）
+- [ ] 每条装配失败路径都有 `logger.error`（或 `logger.warn` 降级日志）+ `throw`，无静默 return（H2c）
+- [ ] 安装后按 `docs/install.md` §3.1 V5 用**页面内 fetch（credentials 默认 same-origin）**验证：`200 {"ok":true,"value":{"protocol":1,…}}`；**不得用无 cookie 裸 curl 的 405/401 当作「通过」判据**
+- [ ] 记住：**Plugin Manager active ≠ 插件工作**；唯一的通过判据是 RPC 200 + 「终端」tab 渲染
