@@ -622,3 +622,54 @@ npm run verify
 - R2（LOW）**closed**：`trimRunOutput(0)` 交付 0 字节。
 - **代码侧「发布前必须修」清零**：任务 14 起跟踪的 H1-a/b/c、M2、R1、R2 全部解除；M1 已裁决不做且已落字；task-11 bashLive 载体 closed。
 - **发布门仅剩**：§10 真机验收 19 项 Unverified（视觉/指针键盘/宿主集成/网络异常/性能），由 Lead/owner 在真实 DSH 页面逐条执行留证。
+
+---
+
+## 14. H2/H2b 回归（真机 HIGH 缺陷关闭）
+
+> 来源：真机安装后「插件行 active 但 `POST /terminal-panel/rpc` 返回 405 空 body（SPA fallback）」。
+> 修复：backend `32bbaf4`（H2：cordis apply 不得返回对象 + 失败可见）+ `d51ea5f`（H2b：去除 `export default`）。
+> 本回归写作用域：`tests/**`；未改 `lib/**`。
+
+### 14.1 根因（写入 `tests/host/entry.test.mjs` 头部注释）
+
+- **H2**：`apply` 返回了 `{ panel }` 普通对象。cordis `Fiber._execute` 把 apply 返回值当 effect 解释，只接受 `undefined` / 清理函数 / thenable / Iterator / AsyncIterator → `TypeError: Invalid effect` → `_unload()` **回滚该 fiber 全部 effects**（含 `ctx.effect` 内注册的 exact 路由）→ 路由从未存在；Plugin Manager 仍显示 active（静默失败）。
+- **H2b**：`lib/index.js` 曾有 `export default apply`。DSH ESM loader 取 default（函数）当插件本体，丢失 `export const name/inject` → cordis 认为 `inject=[]` → apply 内访问 `ctx.webServer` 抛 `cannot get property "webServer" without inject`。
+
+### 14.2 真机证据（Lead probe，端到端）
+
+| 时点 | `POST /terminal-panel/rpc` 结果 | 含义 |
+|---|---|---|
+| 修复前 | **405 + 空 body** | exact 路由不存在，落到 SPA fallback（H2/H2b 症状） |
+| 修复后 | **401 + JSON body** | exact 路由已注册，`connection.requestRejection` 认证栅栏生效（401 = 预期拒绝，非 404/405） |
+
+> 判定：401 JSON 证明 `/terminal-panel/rpc` 路由真实存在（路由注册→认证链路可达）；405 空 body 是修复前回归信号。
+
+### 14.3 独立回归用例（`tests/host/entry.test.mjs`，5 个）
+
+| # | 用例 | 断言要点 | 对应缺陷 |
+|---|---|---|---|
+| 1 | `H2b 回归：模块命名空间只含具名导出，无 default，name/inject/apply 正确` | `mod.default===undefined`、`'default' in mod===false`；`typeof apply==='function'`；`name==='terminal-panel'`；`inject` 含 webServer+connection | **H2b** |
+| 2 | `H2 回归：apply 必须返回 undefined（…Invalid effect 回滚路由）` | fake ctx 下 `apply(...)===undefined`；路由 1 条且 path 正确；dispose 后撤销 | **H2** |
+| 3 | `H2 回归：返回普通对象会被 cordis 回滚（负向对照），而真实 apply 通过返回值校验并保留路由` | 本地 fake plugin 返回 `{panel:{}}` → `TypeError: Invalid effect` + effect 注册表清空 + 路由 0；真实 `apply` 经同一 loader 契约 → 保留路由、cleanup 后撤销 | H2 回滚语义 |
+| 4 | `H2 回归：apply 抛错时不得留下路由（fake ctx effect 表断言，失败可见）` | `webServer.register` 抛错 → apply throw、路由表 0、effect 表 0（不静默留半注册状态） | H2 失败可见性 |
+| 5 | `H2 回归：缺 webServer/connection 时 apply 必须 throw（不得静默 return），message 可读` | 缺 webServer / 缺 connection / `webServer` getter 抛 H2b 原始错误 → 均 throw；message 含 `webServer|required services`；写 logger.error | H2/H2b 可见性 |
+
+### 14.4 命令与最终计数（HEAD `d51ea5f` + 本回归）
+
+```bash
+npm run verify
+# → node --check OK；# tests 255 / # pass 255 / # fail 0 / # skipped 0 / # todo 0；
+#   smoke PASS — 91/91 checks；exit 0
+node --test "tests/**/*.test.mjs"
+# → # tests 255 / # pass 255 / # fail 0 ; exit 0
+```
+
+- 基线 250 → **255**（+5 H2/H2b 回归）；`npm run verify` **exit 0**。
+- smoke 由 87 → **91 checks**（backend 侧新增，未回退）。
+
+### 14.5 发布门更新
+
+- **H2/H2b 关闭**：真机路由证据（401 JSON）+ 离线 loader 契约回归双证；`apply` 返回值/命名空间/失败可见性均有独立用例防回归。
+- 真机 §10 清单中 **V5（RPC 路由可用）** 已由本次 probe 部分验证（路由已注册、认证栅栏生效）；其余 Unverified 项（tab 出现/视觉、指针键盘、跨会话、主题、滚轮、列宽、弹窗、断网等）仍需在真实 DSH 页面逐条留证。
+- **代码侧发布门**：此前已清零（§13.7）；本缺陷属真机装配层，已修复 + 回归，无新增代码侧遗留。
