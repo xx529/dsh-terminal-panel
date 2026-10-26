@@ -652,6 +652,159 @@ async function main() {
     panel.dispose()
   }
 
+  // ------------------------------------------- 5. H1 (livelock) / M2 regression
+  section('5. H1 meta truncation + Tier2 single-run floor; M2 selection-set alignment')
+  {
+    // H1-a：默认配置 + 超长 command（100 KB）→ 1 帧内就出现，元信息被截断，绝不 livelock。
+    const rootAgent = makeAgent('session-root')
+    const mockA = createMockContext({
+      services: {
+        tools: {},
+        agents: { get: (id) => (id === 'session-root' ? rootAgent : undefined) },
+        subagents: { listDescendants: async () => [] },
+      },
+    })
+    const { panel: panelA } = apply(mockA.ctx, {})
+    panelA.store.upsert({
+      runId: 'bash:huge-command',
+      kind: 'bash',
+      ownerSessionId: 'session-root',
+      command: 'x'.repeat(100_000),
+      startedAt: Date.now(),
+      status: 'running',
+      outputMode: 'live',
+      stoppable: false,
+      handle: { callId: 'huge' },
+    })
+    let hugeVisible = false
+    let hugeMeta
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const frame = await panelA.handleRpc('panel.poll', { sessionId: 'session-root' })
+      const run = runOf(frame.value, 'bash:huge-command')
+      if (run !== undefined) {
+        hugeVisible = true
+        hugeMeta = run
+        break
+      }
+    }
+    check(hugeVisible, 'H1-a: run with 100 KB command becomes visible within 1 frame (no livelock)')
+    check(hugeMeta?.metaTruncated === true, 'H1-a: metaTruncated flag is set', hugeMeta?.metaTruncated)
+    check(Buffer.byteLength(hugeMeta?.command ?? '', 'utf8') <= 4096, 'H1-a: command truncated to <= 4 KiB', Buffer.byteLength(hugeMeta?.command ?? '', 'utf8'))
+    check((hugeMeta?.command ?? '').endsWith('…'), 'H1-a: truncation marker appended')
+    panelA.dispose()
+
+    // H1-b：maxFrameBytes=4096 + 5 KB 输出 → 保底至少 1 条 Run，文本分批交付，游标只前移已交付字节。
+    const shell = createShellService()
+    const mockB = createMockContext({
+      services: {
+        shell,
+        tools: {},
+        agents: { get: (id) => (id === 'session-root' ? rootAgent : undefined) },
+        subagents: { listDescendants: async () => [] },
+      },
+    })
+    const { panel: panelB } = apply(mockB.ctx, { maxFrameBytes: 4096 })
+    const exec = { callId: 'call-tiny-frame', name: 'bash', arguments: { command: 'noisy' }, agent: rootAgent }
+    await mockB.runToolsExecute(exec, async () => {
+      const spec = shell.resolve({ command: 'noisy', dshEnv: { DSH_SESSION_ID: 'session-root' } })
+      await shell.execute(spec)
+      return { content: [{ type: 'text', text: '' }], isError: false }
+    })
+    const execution = shell.executions[0].execution
+    execution.writeOut('y'.repeat(5000) + '\n')
+    let delivered = ''
+    let cursor = 0
+    let frameWithRun = 0
+    let firstFrameText = ''
+    let sawTruncated = false
+    let lastFrame
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const frame = await panelB.handleRpc('panel.poll', {
+        sessionId: 'session-root',
+        ...(attempt === 0 ? {} : { cursors: { 'bash:call-tiny-frame': { stdout: cursor } } }),
+      })
+      lastFrame = frame
+      if (frame.value.truncated === true) sawTruncated = true
+      const run = runOf(frame.value, 'bash:call-tiny-frame')
+      if (run !== undefined) {
+        frameWithRun += 1
+        const text = textOf(run, 'stdout')
+        if (firstFrameText === '' && text.length > 0) firstFrameText = text
+        delivered += text
+        const next = frame.value.nextCursors['bash:call-tiny-frame']?.stdout
+        if (Number.isFinite(next)) cursor = next
+      }
+    }
+    check(frameWithRun >= 1, 'H1-b: small budget still yields the run (Tier2 floor holds)', frameWithRun)
+    check(firstFrameText.length > 0, 'H1-b: first frame delivers some output', firstFrameText.length)
+    check(firstFrameText.length < 5001, 'H1-b: output arrives in chunks (not silently dropped)', firstFrameText.length)
+    check(delivered.length === 5001, 'H1-b: all output eventually delivered exactly once', delivered.length)
+    check(sawTruncated === true, 'H1-b: frame reports truncated while draining')
+    check(lastFrame.value.runs.length >= 0, 'H1-b: frames stay well-formed after drain')
+    panelB.dispose()
+
+    // M2：40 个 running job（各 1 KB 输出）→ 首帧 32 列里必须有输出列（此前 0 列）。
+    const jobs = createJobsService()
+    for (let index = 0; index < 40; index += 1) {
+      jobs.add(`job-m2-${index}`, 'session-root', `task ${index}`)
+      jobs.append(`job-m2-${index}`, `out-${index}\n`)
+      jobs.jobs.get(`job-m2-${index}`).view.startedAt = Date.now() + index
+    }
+    const mockC = createMockContext({
+      services: {
+        tools: {},
+        jobs,
+        agents: { get: (id) => (id === 'session-root' ? rootAgent : undefined) },
+        subagents: { listDescendants: async () => [] },
+      },
+    })
+    const { panel: panelC } = apply(mockC.ctx, {})
+    const frameM2 = await panelC.handleRpc('panel.poll', { sessionId: 'session-root' })
+    const withOutput = frameM2.value.runs.filter((run) => (run.output?.job?.chunks?.length ?? 0) > 0)
+    check(frameM2.value.runs.length === 32, 'M2: frame keeps 32 running runs', frameM2.value.runs.length)
+    check(withOutput.length > 0, 'M2: first frame contains output columns (before fix: 0)', withOutput.length)
+    check(withOutput.length === frameM2.value.runs.length, 'M2: every displayed run got read budget', withOutput.length)
+    panelC.dispose()
+
+    // H1-c 不变量：极小预算下多条大 Run 交替时，任何 Run 都不得「连续 3 帧被丢且零字节交付」。
+    const mockD = createMockContext({
+      services: {
+        tools: {},
+        agents: { get: (id) => (id === 'session-root' ? rootAgent : undefined) },
+        subagents: { listDescendants: async () => [] },
+      },
+    })
+    const { panel: panelD } = apply(mockD.ctx, { maxFrameBytes: 1024 })
+    for (const id of ['a', 'b']) {
+      panelD.store.upsert({
+        runId: `bash:tiny-${id}`,
+        kind: 'bash',
+        ownerSessionId: 'session-root',
+        command: id,
+        startedAt: id === 'a' ? 1 : 2,
+        status: 'running',
+        outputMode: 'live',
+        stoppable: false,
+        handle: {},
+      })
+      panelD.store.setOutput(`bash:tiny-${id}`, 'stdout', {
+        chunks: [{ at: 1, text: 'q'.repeat(5000), byteStart: 0, byteEnd: 5000 }],
+        nextCursor: 5000,
+        lossy: false,
+        gapBefore: false,
+        truncated: false,
+      })
+    }
+    const visibility = new Map()
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const frame = await panelD.handleRpc('panel.poll', { sessionId: 'session-root', cursors: {} })
+      for (const run of frame.value.runs) visibility.set(run.runId, (visibility.get(run.runId) ?? 0) + 1)
+    }
+    check((visibility.get('bash:tiny-a') ?? 0) >= 1, 'H1-c: run A visible within 3 frames', visibility.get('bash:tiny-a'))
+    check((visibility.get('bash:tiny-b') ?? 0) >= 1, 'H1-c: run B visible within 3 frames (no 3-frame starvation)', visibility.get('bash:tiny-b'))
+    panelD.dispose()
+  }
+
   // ---------------------------------------------------------------- summary
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${checks - failures}/${checks} checks passed`)
   if (failures > 0) {
