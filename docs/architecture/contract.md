@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v7）
+# dsh-terminal-panel · 架构与契约（v8）
 
-> 状态：**v7（v6 + 真机缺陷驱动增量）** — 用户真机反馈 5 项缺陷（terminal 记录不可见/界面抖动/标题半截命令/输出不含输入/收起时序/终端 tab 仍显示 composer），Lead 裁决 v6→v7；Host 由 T31、Client 由 T32 实现。本版新增 `Run.inputs`/`Run.notice`/`outputMode:'meta-only'`/`PollResult.diagnostics`、终端发现三级链路（修订 §4.2 语义 5：agent 缺失不再删 Run）、§11 冻结表 v7 增补与 §12.11 三条新裁决。
+> 状态：**v8（v7 + 客户端展示层增量）** — 真机反馈（横向列滚动难用/终态跳变/切 tab 空屏/首帧空态闪烁）+ Lead 裁决；T37 Client 实现。**host 协议仅新增可选 `resync` 与一致性不变量（向后兼容，§4.2/§8.6）**。v8 新增：客户端 `SESSION_CACHE`（LRU 4 / TTL 30min）、Run 展示三态（`running→linger→completed`，**替换** v7「新终态自动展开分组」）、执行区**网格换行 + 纵向滚动**（横向滑动/溢出按钮**废弃**）、FLIP+fade 动画、首帧 skeleton 加载态；§11.2 冻结表 v8 增补 + §12.12 两条新裁决。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -35,6 +35,7 @@
 | v5 | 2026-10-26 | H1/M2 实现对齐（backend `4bc721e`）：§11.1 冻结表增补 4 个 additive 导出（`pickFallbackRun`/`runOutputTextBytes`/`trimRunOutput`/`splitDeltaAtBytes`）与 store 侧 additive 导出/方法（`META_MAX_BYTES`/`truncateMetaText`/`serializeRun`/`frameSelection`/`selectForFrame`/`commitCursorsFromFrame`）；`boundFrameDetailed` 补可选第 3 参 `{preferRunId}`；§4.3 对齐部分交付后缀回退、`bounded.nextCursors` 唯一提交来源、`dropStreak` 保底、`planReads` 公平分配。 |
 | v6 | 2026-10-26 | Host 插件装载契约（H2/H2b，真机故障驱动）：ESM **只许具名导出 `name/inject/apply`，禁 `export default`**；`apply` **必须返回 `undefined`**（返回对象 → cordis `Invalid effect` → effects 回滚 → active 但路由不存在）；装配失败必须 `logger.error` + **rethrow**；§13.5 新增发布前自检项；docs/install.md 验证方式修正（无 cookie 裸 curl 不能判路由）。**冻结表未改动**。 |
 | v7 | 2026-10-26 | 真机缺陷驱动增量（Lead 裁决；T31 Host / T32 Client 实现）：`Run.inputs?`（terminal 输入采集）、`Run.notice?`、`Run.outputMode:'meta-only'`、`PollResult.diagnostics`（每帧必带）；终端发现**三级链路**（terminals.list → terminalController.list(sessionId) → tools/execute 旁路事件）；修订 §4.2 语义 5「agent 缺失不再删 Run」；§11 冻结表 v7 增补（T31/T32 交接后核对）；§12.11 三条新裁决；ui-spec 升 v5（标题首行/输入块/倒计时时序/抖动约束/composer 隐藏）。 |
+| v8 | 2026-10-26 | **客户端展示层增量（host 协议不变）**：客户端会话状态缓存（`SESSION_CACHE` LRU 4/TTL 30min）；Run 展示三态（running→linger→completed，**替换** v7「新终态自动展开分组」）；执行区网格自动换行 + 纵向滚动（**废弃** v5 横向滑动/滚动条/右侧溢出按钮）；fade+scale 180ms + FLIP 200ms 补位（仅 transform/opacity，reduced-motion 瞬时）；首帧前 skeleton 加载态；§11.2 冻结表 v8 增补；§12.12 R9/R10 两条新裁决；ui-spec 升 v6（A14–A20）；另含 **host 一致性补丁**（v8 追加）：`poll.resync`、`removed`/`runs` 同帧互斥 + `prune(protect)`、`revision` 回退=重建（§8.6/§12.12 R11/R12）；ui-spec 追加 A21/A22。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -160,6 +161,58 @@ waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只�
 
 > `capture-terminals.mjs` 的新导出（`discoverTerminalCandidates` / `createTerminalEventCapture` 等）依赖 `ctx`，属集成模块，不进纯函数冻结表（由 `tests/host/*` 集成用例覆盖）。
 
+### v8 客户端展示层增量（2026-10-26，Lead 裁决；T37 Client 实现）
+
+> **范围**：纯客户端展示层；Host 协议（§4/§5 wire 契约、§9 config）**不变**。触发方：真机反馈 + Lead 裁决。详见 §6.7/§6.8 与 §12.12。
+
+#### 8.1 执行区网格（取代 v5「横向列 + 左右滚动」）
+
+- 执行区 = **固定宽卡片 + 自动换行（`flex-wrap: wrap`）**，整体**纵向滚动**；卡片默认宽 352，仍可拖 280–640（按会话记忆）。
+- 窄容器（<360px）：卡片 `max-width:100%` 收缩为单列，**不出现横向滚动**；卡片高保持 342。
+- **废弃**：横向滑动、横向滚动条、右侧 `›` 溢出按钮、剩余列数角标、「可视 3 列」概念（ui-spec v5 §2.1 的横向条款被 v6 取代，见 §12.12 R9）。
+- 已完成区在执行区**下方**（随整体纵向滚动），分组默认折叠不变。
+
+#### 8.2 会话状态缓存（`SESSION_CACHE`）
+
+| 项 | 规则 |
+|---|---|
+| 结构 | 模块级 Map；**LRU 最多 4 个会话**、**TTL 30 分钟**；值 `{ view, cursors, revision, savedAt }` |
+| 写入 | poll 成功应用帧后 / view 切走（卸载）时保存当前 view + cursors + revision + now |
+| 恢复 | 切回 tab 时命中且未过期 → 先恢复 view（**首屏不空**）与 cursors/revision，再开始轮询（**游标续传**，不重拉） |
+| 失效 | 超 TTL / LRU 淘汰 / 会话删除 或 `removed` 清空；**`retryToken` 变化不得清空 view**（只重连，不丢本地状态） |
+| 清理 | React 卸载清定时器但保留缓存；插件卸载清整个 Map |
+
+#### 8.3 Run 展示三态（**替换** v7「新终态自动展开分组」）
+
+```text
+running ──终态──► linger（10s 滞留：倒计时 + 「收起」按钮；hover/focus 暂停）
+                     ├── 10s 到 ──► completed（移入已完成分组）
+                     └── 点「收起」──► completed（立即、幂等）
+```
+
+- `RunPhase = 'running' | 'linger' | 'completed'`；纯函数 `runPhase()` / `lingerVisual()`（§11.2）。
+- **替换关系（明确）**：v7 的「新终态自动展开已完成分组」行为**删除**（不再因终态自动展开分组）；分组保持用户折叠状态，终态卡片在 linger 结束后进入完成分组。
+- `pinned` 卡片不 arm linger（保持展开，直到手动收起/取消 pin）。
+
+#### 8.4 动画与加载态
+
+- linger→completed 离开执行区：**fade + scale（≈180ms）**；其余卡片 **FLIP 补位（200ms）**，仅改 `transform`/`opacity`，不改布局高度；`prefers-reduced-motion: reduce` 全部瞬时。
+- 入场动画仍仅首挂载播放（v5 约束保留）。
+- **首帧前 loading**：首帧未到达显示 skeleton/加载态，**不是空态**；空态仅在「连接 ok 且首帧已确认 0 条」且**经过 600ms 稳定窗口**后显示（避免 job-only 场景空态/有数据闪跳）（§12.12）。
+
+#### 8.5 §11.2 冻结表增补 & §12.12 新裁决
+
+- 新增纯函数（**以 T37 交接为准**，见 §11.2）：`runPhase` / `lingerVisual` / `flipDeltas` / `isRevisionRollback` / `createSessionCache` / `SESSION_CACHE` / `LINGER_DELAY_MS` / `CARD_EXIT_MS` / `FLIP_MS` / `pauseLinger` / `resumeLinger` / `collapseLinger`；`__internals` 键数 53（v7 41 + v8 12）。
+- §12.12：R9 横向滑动废弃；R10 linger 三态取代自动展开分组；R11 revision 回退=服务端重建→清 view + resync；R12 removed/runs 同帧互斥（runs 优先）。
+
+#### 8.6 Host 一致性补丁（v8，向后兼容的协议增补）
+
+> 真机①②（切 tab 后空/抖动、Host 重载后面板冻结）的独立根因在 host 侧（scout T36 A/B/C），由 T41 实现。**wire 契约仅新增可选参数与不变量，不改变既有字段语义**。
+
+- **`panel.poll { resync?: true }`**：全量重同步（见 §4.2）；客户端 mount 缓存未命中 / revision 回退 / 手动重试时触发。
+- **`removed` 与 `runs` 同帧互斥**：同一 runId 不得同帧既 removed 又出现于 runs；冲突以 runs 为准（§4.2 语义 9）；`store.prune(now,{protect})` 保护本帧 discovery 已见 Run。
+- **`revision` 回退** = 服务端重建：客户端清空本地 view（保留筛选/分组用户态）+ 丢弃在途帧 + 一次 resync（§4.2 语义 6 / §6.8）。
+
 ---
 
 ## 1. 目标与非目标
@@ -168,7 +221,7 @@ waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只�
 
 - 在会话头部 View 标签栏新增「终端」tab（`conversation.view` slot，`id: terminal-panel`，`order: 30`）。
 - 聚合 **当前会话 + 子代理 + Agent Team 队友** 的 bash 前台执行、后台任务（jobs）、持久终端（terminals）输出，只读观看。
-- 进行中按横向列展示（列宽可拖 280–640，默认 352）、已完成 32px 紧凑行 + 10s 自动收起、跟随滚动、筛选、搜索、最大化只读弹窗。
+- 进行中按**固定宽卡片网格**展示（默认 352，可拖 280–640，自动换行 + 纵向滚动，v8 取代横向列）、Run 三态（running→linger→completed，已完成为 32px 紧凑行分组）、跟随滚动、筛选、搜索、最大化只读弹窗。
 
 ### 1.2 非目标
 
@@ -406,6 +459,7 @@ interface PollParams {
   cursors?: Record<string, RunCursor>    // runId → 各通道游标；缺省 run 视为首见（给保留窗口尾部）
   includeCompleted?: boolean             // 默认 true；服务端最多保留 completedLimit 条终态
   focusRunId?: string                    // 可选：优先续读该列（放大弹窗/活动列不被饿死）
+  resync?: boolean                       // v8：全量重同步（忽略本地游标，把可见 Run 全部重发；不因 resync 发 removed）
   maxRuns?: number                       // 默认/上限 maxRuns（32）
   maxBytes?: number                      // 默认/上限 maxFrameBytes（65536）
 }
@@ -460,9 +514,23 @@ interface PollDiagnostics {
    - **v7 修订**：**agent 缺失/解析失败不再触发 terminal Run 的 `removed`**（旧实现 noAgent 分支直接删 Run 是缺陷 ① 根因）；terminal 只在 `terminal_close`/`terminal_kill`、会话结束、保留窗口过期时移除（见 §7.2/§7.3）。
    - `completedRetainMs` **不用于** `removed`；它只用于 Client 的**本地兜底淘汰** `pruneRuns()`：对「服务端仍保留、且已终态」的 Run，超过 300000ms 或条数超过常量 `MAX_RETAINED_COMPLETED`(200) 时本地删除（用于长时间无帧 / 内存保护）。两者不冲突：收到 `removed` 优先立即删。
    - 服务端保留窗口参数：`completedLimit`=50 条、`completedRetainMs`=300000ms（`retainCompletedMs`，`store.prune` 的实现）。
-6. `revision <= 本地已应用 revision` 的帧直接丢弃（乱序/重试）。
+   - **v8 修订**：`resync` **不产生 `removed`**（全量重同步只重发 runs，不删任何 Run）；`store.prune` v8 新增 `protect`（本帧 discovery 已见 runId）——被保护的 Run 本帧不得被 prune，避免「removed → 下一帧重新 upsert」抖动。
+6. **`revision` 语义（v8 修订）**：`incoming > applied` 正常前进；`incoming === applied` 重复/乱序帧丢弃；**`incoming < applied` = 服务端重建（Host/插件重载后 `store.revision` 归 1）**——Client 必须**清空本地 `view`（保留筛选/分组用户态）+ 丢弃在途帧 + 发一次 `resync:true`**，不得直接丢弃（旧语义 `<=` 会让面板在重载后永久冻住）。
 7. `run.outputMode === 'final-only'` 的 Run 在终态前**没有输出块**；UI 在输出区显示「仅终态」占位（§12.7）。`outputMode === 'meta-only'`（v7，仅 terminal）表示有元信息但读不到输出：UI 必须显示输入块 + `notice`（若有）+ 空输出文案，**不得**当作错误吞掉。
+9. **同帧互斥不变量（v8）**：同一帧的 `removed` 与 `runs` **不得包含同一 runId**；若冲突，**以 `runs` 为准**（该 run 的 `removed` 延后一帧再发）。实现：`store.prune(now,{protect})` + 出帧前按本帧 `runs`/已尝试交付 entry 过滤 `removed`。
+10. **`resync` 收敛**：`resync:true` 只把可见选择集内全部 Run 标为「有变化」并把各来源读游标回退到保留窗口起点（`metaDirty` + `nextReadCursor`）；**不得**改变 `removed`/`availability` 语义；重发仍受 Tier1/Tier2 预算与 H1「≥1 Run」保底约束，**可分多帧收敛**（`truncated:true` 时客户端继续轮询即可）。无法重读的 tier3 事件片段保留在 pending 中继续发。
 8. `diagnostics`（v7）每帧必带且**不得省略**（旧客户端忽略）；它是终端三级发现链路的唯一可观测证据（`agentFound`/`terminals.source`/`reason`），排障时先看它。
+
+#### `panel.poll` 的 `resync`（v8 可选参数）
+
+```ts
+interface PollParams { /* 同上；新增 */ resync?: boolean }
+```
+
+- 客户端触发时机：**mount 且会话缓存未命中** / 检测到 `revision` 回退 / 手动重试；同一次挂载成功发一次即可（Host 未实现时按 `bad-request`/`unknown-method` 静默降级为普通轮询）。
+- 服务端行为：对本次可见选择集（`includeCompleted/maxRuns/focusRunId` 同 poll）内全部 Run `metaDirty=true`、清读游标/窗口、事件片段 pending 保留；**不产生 `removed`**；被重置的 runId 加入本帧 prune 保护集。
+- `cursors: null` 作为等价「无状态」信号（兼容旧客户端）；`resync:true` 优先。
+- 预算不变量不变（§4.3）：重发可分多帧，`truncated:true` + `nextCursors` 正常续读。
 
 #### `panel.kill`
 
@@ -818,6 +886,30 @@ interface ViewState {
 - 打开时取 `focusRunId = 该 Run` 让 RPC 优先续读；关闭恢复。
 - 焦点：`role="dialog" aria-modal="true"`，打开 focus 容器，Esc 关闭，卸载恢复焦点到触发按钮。
 
+### 6.7 Run 展示三态（v8，纯客户端；替换 v7「新终态自动展开分组」）
+
+```
+running ──终态──► linger ──(10s 到期 | 点「收起」)──► completed
+                    │
+                    ├─ hover/focus：暂停倒计时（移出/失焦后重新计 10s，同 v4 收起语义）
+                    └─ pinned：不 arm linger（保持展开，直到手动收起）
+```
+
+- `RunPhase = 'running' | 'linger' | 'completed'`；`runPhase(run, column, now)` 判定；`lingerVisual(state, now)` 给渲染字段（倒计时/进度/暂停/可见性）。
+- linger 仅用于**已终态**卡片；`running` 卡片不进入 linger；`completed` 卡片在已完成分组内（按 `finishedAt` 稳定排序）。
+- 文案：倒计时 `Ns 后移入已完成`（`linger.in`），按钮 `收起`（`linger.collapse`）；倒计时槽固定占位（`min-width:152px`），不改变行内布局。
+- 「收起」按钮把 linger 立即转 completed（幂等；重复点击无副作用）。
+- **替换 v7 行为**：v7 的「新终态自动展开已完成分组」**删除**；分组展开状态仅由用户操作改变。
+
+### 6.8 客户端会话状态保持（v8，`SESSION_CACHE`）
+
+- 结构：模块级 Map；**LRU 4 / TTL 30 分钟**；值 `{ view, cursors, revision, savedAt }`。
+- 保存时机：poll 帧成功应用到 view 后；View 卸载（切走 tab）时兜底保存。
+- 恢复时机：View 挂载时若命中未过期 → 用缓存的 view/cursors/revision 初始化（首屏不空），随后以缓存 cursors 续传轮询。
+- `retryToken` 变化只触发重连，**不清空 view**；TTL/LRU/会话删除/`removed` 才会失效。
+- 插件卸载清整个缓存；React 卸载不清（同会话内切 tab 需要）。
+- **resync 兜底（v8 追加）**：缓存未命中（首次挂载/被 LRU 淘汰/TTL 过期）或检测到 `revision` 回退时，除恢复缓存外还必须发一次 `panel.poll {resync:true}`（`resync` 不产生 removed）；`retryToken` 手动重试同样触发一次 resync。Host 未实现 resync 时按 `bad-request`/`unknown-method` 静默降级为普通轮询。
+
 ---
 
 ## 7. 筛选
@@ -990,6 +1082,8 @@ interface ViewState {
 | Store 实例方法（新增，M2） | `selectForFrame` | 同 `frameSelection`（**别名**） | 语义等价，供调用方按可读性选用 |
 | Store 实例方法（新增，H1） | `commitCursorsFromFrame` | `(nextCursors?: Record<string, object>) => void` | 只按**本帧实际交付**的 `nextCursors` 提交游标（Tier2/3 裁剪后唯一可信来源） |
 | 模块导出（v7 新增纯函数） | `normalizeNotice` | `(notice: unknown) => { code: string; message: string } \| undefined` | 归一化 `Run.notice`（只保留 code/message 字符串；code 空 → undefined） |
+| Store 实例方法（v8 新增） | `prune` | `(now?: number, options?: { protect?: Set<string>\|string[] }) => string[]` | 淘汰过期终态；**`protect` = 本帧 discovery 已见 runId，不得 prune**（防 removed/re-upsert 抖动）；返回本次移除的 runId |
+| Store 实例方法（v8 新增） | `resync` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string }) => string[]` | 全量重同步：可见选择集 Run `metaDirty` + 读游标回退保留窗口起点；**不产生 removed**；返回被重置 runId（供 prune 保护） |
 
 #### 11.1.2 `capture-terminals.mjs` v7 新签名（集成模块，**不冻结**但列全供集成用例对齐）
 
@@ -1051,6 +1145,17 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | (v7) | `collapseVisual(state, now)` | → `{ expanded:boolean; visible:boolean; countdown:boolean; remaining:number; progress:number; pinned:boolean; paused:boolean; armed:boolean }`（#4 收敛：`expanded===false` 一律 `countdown:false/progress:0`，pinned 永不倒计时） |
 | (v7) | `firstCommandLine(command, maxLen?)` | → `string`（首条非空行、折叠空白、超长 `…`、多行末尾 ` +N 行`；默认 maxLen=120） |
 | (v7) | `applyComposerHidden(node, visible)` | → `boolean`（在 `[data-conversation-content]` 节点上 set/remove `data-tp-composer-hidden`；幂等、失败静默返回 false 不抛错） |
+| (v8) | `isRevisionRollback(appliedRevision, incomingRevision)` | → `boolean`（`incoming < applied` = 服务端重建；`===` 重复帧/`>` 前进不算回退） |
+| (v8) | `runPhase(run, column, now?)` | → `'running' \| 'linger' \| 'completed'`（终态且 linger state 有 deadline 未到/暂停/pinned → linger） |
+| (v8) | `lingerVisual(state, now?)` | → `{ visible:boolean; remaining:number; progress:number; armed:boolean }`（paused 冻结 remaining；到点 armed=false） |
+| (v8) | `pauseLinger(state, now?)` | → `state`（`paused:true`，冻结倒计时并记录 `frozenRemainingMs`；**`now?` 为可选注入时钟，缺省 `Date.now()`**） |
+| (v8) | `resumeLinger(state, now?)` | → `state`（`paused:false`，`deadline=now+10s`，重新计满 10s） |
+| (v8) | `collapseLinger(state)` | → `null`（「收起」按钮：立即结束滞留；幂等，空输入安全） |
+| (v8) | `createSessionCache(options?)` | `({ max?, ttlMs?, now? }) => { get(sessionId, now?): entry\|undefined; set(sessionId, entry, now?): void; delete(sessionId): boolean; clear(): void; size(): number }`（LRU 4 / TTL 30min，命中刷新最近使用） |
+| (v8) | `SESSION_CACHE` | 模块级单例缓存（`createSessionCache()`，跨 View 挂载保留、插件卸载清） |
+| (v8) | `LINGER_DELAY_MS` | `10000`（滞留时长常量） |
+| (v8) | `CARD_EXIT_MS` / `FLIP_MS` | `180` / `200`（淡出时长 / FLIP 补位时长） |
+| (v8) | `flipDeltas(prevRects, nextRects)` | → `Record<runId, { dx:number; dy:number } \| null>`（新增/删除/无位移 → null；仅返回有位移项） |
 | 自动收起 | `createCollapseState()` | → `CollapseState` |
 | | `armCollapse(state, now)` | → `CollapseState` |
 | | `pauseCollapse(state)` | → `CollapseState` |
@@ -1182,6 +1287,15 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | R7 | **`notice.code` 生产集合**：实际只产出 `terminal-no-agent` / `terminal-read-failed`；`terminal-controller-unavailable` 为**保留值** | 默认 `sidebarTerminals=false` 下不会产生 controller 相关 notice；开启且 controller 缺失时原因写在 `diagnostics.terminals.reason` | §7.1 NoticeCode 说明 + Host 用例断言实际 code 集合 |
 | R8 | **侧栏终端本期不做 UI 区分** | 默认关闭因而不进入常规路径；开启时也只有 `diagnostics.terminals.source='sidebar'` 一个标识 | 仅在契约/diagnostics 层记录；UI 不做侧栏专属视觉（避免与 agent PTY 混淆即可） |
 
+### 12.12 客户端展示层裁决（v8，2026-10-26 Lead 裁决 + 真机反馈）
+
+| # | 裁决 | 理由 | 验收载体 |
+|---|---|---|---|
+| R9 | **执行区横向滑动/横向滚动条/右侧 `›` 溢出按钮废弃**，改为固定宽卡片自动换行 + 纵向滚动 | 真机反馈：列多时横向滑动难用、找不到溢出列；纵向网格更自然 | ui-spec v6 §2.1/§9 A14；tester 静态断言无 `overflow-x`/`scrollLeft`/`›` 溢出按钮/横向滚动条伪元素 |
+| R10 | **Run 三态 linger 取代 v7「新终态自动展开分组」**（替换，非叠加） | 真机反馈：终态瞬间跳入已完成导致跳动、刚结束的任务难找；10s 滞留 + 「收起」按钮更可控 | ui-spec v6 §2.2/§9 A15–A17；tester 断言 `runPhase`/`lingerVisual`/收起 reducer |
+| R11 | **`revision` 回退 = 服务端重建**：客户端清本地 view + 发一次 `resync:true`（旧语义 `<=` 丢弃会让 Host/插件重载后面板永久冻住） | 真机②：重载后面板停止更新，需刷新页面 | §4.2 语义 6 / §6.8；tester 断言 `isRevisionRollback` + 组件清 view + resync 只发一次 |
+| R12 | **`removed` 与 `runs` 同帧互斥，冲突以 runs 为准**；`store.prune` 增加「本帧已见」保护 | 真机①：job 结算后同帧 removed+重新 upsert 造成列表抖动 | §4.2 语义 5/9；tester 断言同帧互斥、protect 不 prune |
+
 ---
 
 ## 13. 下游交接清单
@@ -1204,6 +1318,9 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v7 `PollResult.diagnostics` 每帧必带**（`rootSessionId/agentFound/agentCount/scopes/terminals{candidates,source,reason?}`），不许省略；`source` 取值 `'terminals'|'sidebar'|'events'|'none'`（**不是 'controller'**）；新字段计入 Tier2 帧体积。
 - [ ] **v7 `sidebarTerminals` 配置**（§9）：默认 `false` 不探测 `terminalController`；显式 `true` 才展示侧栏终端、`diagnostics.terminals.source='sidebar'`，且不得与 agent PTY 混排。
 - [ ] **v7 tier3 片段输出**：`terminal_open.motd` / `terminal_send.viewport` / `terminal_read.text` 可追加为 Run 输出，标注「片段、非实时全量」；`notice.code` 实际只产出 `terminal-no-agent` / `terminal-read-failed`（`terminal-controller-unavailable` 保留）。
+- [ ] **v8 `resync`**：`panel.poll.resync:true`（或 `cursors:null`）→ 可见选择集 Run 全部 metaDirty + 读游标回退；**不发 removed**；预算/≥1 Run 保底不变，可多帧收敛；被重置 runId 进本帧 prune 保护。
+- [ ] **v8 `removed`/`runs` 互斥**：同帧不得同 runId 双发，冲突以 runs 为准；`store.prune(now,{protect})` 保护本帧 discovery 已见 Run。
+- [ ] **v8 `revision` 回退**：客户端 `incoming < applied` 清 view（保留筛选/分组）+ 发一次 resync；`===` 丢弃；`>` 前进。
 
 ### 13.2 frontend（T4）v2/v3 增补
 

@@ -227,3 +227,17 @@ node tests/e2e/smoke.mjs
 | D5 收起时序 | 结束即收起/收起后仍倒计时 | `client/v7.test.mjs` A5/A6（10s 前不折叠、到点清 deadline、折叠后无倒计时、paused/pinned） | 倒计时视觉与进度条 |
 | D6 composer 未隐藏 | 终端 tab 仍显示输入框 | `client/v7.test.mjs` A10（`applyComposerHidden` 纯函数 + 静态注入/CSS/无 body 写） | 终端 tab 激活隐藏、切走恢复、失败静默且不影响其它 tab |
 
+## 13. ui-spec v6 A14–A22 映射（v8 展示层 + host 一致性补丁）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A14 | 网格换行（无横向滚动/溢出按钮） | auto（静态）+ manual | `client/v8.test.mjs::A14 网格（静态）`：`.tp-strip-track{flex-wrap:wrap}`、`.tp-strip{overflow-y:auto;overflow-x:hidden}`、无 `overflow-x:auto`/`scrollLeft`/`tp-more`/`visibleIds`、`.tp-col{flex:none;height:342px}` | 结构 **PASS**；真机目视 **Unverified** |
+| A15 | Run 三态（running→linger→completed） | auto | `client/v8.test.mjs::runPhase…`、`lingerVisual…`、`mergePoll：running→终态进入 linger…`（10s 内 linger、到点 completed、running 不显示倒计时） | 纯函数 **PASS**；视觉/计时器 **Unverified** |
+| A16 | 「收起」立即完成 + 幂等；pinned 不 arm | auto | `client/v8.test.mjs::pauseLinger / resumeLinger：「收起」collapseLinger 立即完成且幂等`、`mergePoll…pinned 不 arm linger` | 纯函数 **PASS**；真实按钮点击 **Unverified** |
+| A17 | hover/focus 暂停倒计时、移出重计 10s | auto + manual | `client/v8.test.mjs::DEF-1 回归：hover/focus 暂停期间 linger 倒计时/进度冻结，resume 后回到契约语义`（暂停期间不同 now 的 remaining/progress 必须相等；resume 重计 10s 后正常递减） | 纯函数 **PASS**（DEF-1 已修）；真机悬停 **Unverified** |
+| A18 | 切 tab 恢复（缓存命中/游标续传/LRU4/TTL30min） | auto（缓存纯函数 + 静态接线）+ manual | `client/v8.test.mjs::createSessionCache…`（LRU4/TTL 边界/命中刷新/缓存不重建 view）、`A18/A21 缓存接线（静态）` | 纯函数 **PASS**；真实切 tab 时序 **Unverified** |
+| A19 | FLIP/fade（180/200ms、仅 transform/opacity、reduced-motion） | auto（静态/逻辑）+ manual | `client/v8.test.mjs::A19`（card-out 180ms、`FLIP_MS=200`、keyframes 仅 opacity/transform、reduced-motion 跳过）+ `flipDeltas` 位移/新增/删除 | 逻辑 **PASS**；观感 **Unverified** |
+| A20 | 首帧 loading ≠ 空态（600ms 稳定窗口） | auto（静态）+ manual | `client/v8.test.mjs::A20`（skeleton 分支先于空态、`awaitingFirstFrame`、`setEmptySettled(true), 600`） | 结构 **PASS**；真机过渡 **Unverified** |
+| A21 | 缓存未命中/revision 回退 → resync，无 removed 抖动 | auto（缓存/revision + host resync） | `client/v8.test.mjs::isRevisionRollback` + `A18/A21 静态`；`host/v8-consistency.test.mjs::resync…`、`cursors:null 等价…` | 纯函数/Host **PASS**；真机重载 **Unverified** |
+| A22 | job-only 不抖动；removed/runs 互斥；本帧已见 Run 不被 prune | auto（Host 帧不变量） | `host/v8-consistency.test.mjs::removed/runs 同帧互斥`、`removed 正常路径`、`prune(now,{protect})`、`A22 job-only 相邻帧稳定` | Host **PASS**；真机首帧 **Unverified** |
+

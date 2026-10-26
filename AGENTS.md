@@ -1,7 +1,7 @@
 # AGENTS.md · dsh-terminal-panel 项目指引
 
 > 给未来会话 / 其他 agent 的项目级指引。**先读本文件，再读契约**；一切硬性接口以
-> [`docs/architecture/contract.md`](docs/architecture/contract.md)（**v7**）为唯一契约来源。
+> [`docs/architecture/contract.md`](docs/architecture/contract.md)（**v8**）为唯一契约来源。
 > 本文件只描述仓库现状，不发明未实现的能力。仓库：<https://github.com/xx529/dsh-terminal-panel>
 
 ## 1. 项目定位
@@ -9,7 +9,7 @@
 DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` version `0.1.0`，`private`）：
 在会话头部 View 标签栏新增「终端」tab（`conversation.view`，`id: terminal-panel`，`order: 30`），把
 **当前会话 + 子代理 + Agent Team 队友** 的 bash 前台执行、后台任务（`ctx.jobs`）、持久终端（`ctx.terminals`）
-输出聚合成**只读**的横向列面板（列/筛选/自动收起/跟随滚动/最大化弹窗）。
+输出聚合成**只读**的卡片网格面板（v8：网格换行/三态 linger/会话缓存/FLIP，详见 §4）。
 
 - 代码侧已交付（见 §9）；**尚未做真机安装与视觉验收**。
 - 双端形态：Host 半端 = ESM Cordis 插件；Client 半端 = 单文件 classic script（`window.__ModuleLoader__.load`）。
@@ -38,15 +38,15 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 │   │   ├── terminal-events.mjs   #   v7：terminal_* 事件旁路（三级发现级 3 + inputs 采集）
 │   │   ├── status.mjs / tree.mjs / classify.mjs
 │   │   └── capture-bash.mjs / capture-jobs.mjs / capture-terminals.mjs
-│   └── client.js                 # Client 半端单文件 classic script（≈3,000 行；无独立 lib/client 目录）
+│   └── client.js                 # Client 半端单文件 classic script（≈3.1k 行；无独立 lib/client 目录）
 ├── tests/                        # *.test.mjs（tests/{client,host,e2e}/ + helpers/）
 │   ├── client/                   #   纯函数 + 装配 + 静态样式检查
 │   ├── host/                     #   纯模块 + panel 集成
 │   └── e2e/smoke.mjs             #   端到端冒烟脚本（可独立运行）
 ├── scripts/smoke-host.mjs        # Host mock ctx 冒烟（91 checks）
 ├── docs/
-│   ├── design/ui-spec.md         # v5 设计规格（验收基线）
-│   ├── architecture/contract.md  # **唯一契约来源（v7）**
+│   ├── design/ui-spec.md         # v6 设计规格（验收基线）
+│   ├── architecture/contract.md  # **唯一契约来源（v8）**
 │   ├── research/dsh-plugin-apis.md # scout T1 平台取证（事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/{acceptance-matrix,report,integration-report}.md
@@ -59,16 +59,16 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 
 ```bash
 npm run check      # node --check lib/index.js && node --check lib/client.js
-npm test           # node --test "tests/**/*.test.mjs" → 296 tests / 296 pass
+npm test           # node --test "tests/**/*.test.mjs" → 323 tests / 323 pass
 npm run smoke      # node scripts/smoke-host.mjs → 91/91 checks，exit 0
 npm run verify     # check → test → smoke（当前 exit 0）
 node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ```
 
 **门禁：任何改动后必须跑 `npm run verify` 并通过（exit 0）。** 不依赖网络、不装依赖。
-当前基线：**296 tests / 296 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T34 最终报告）。
+当前基线：**323 tests / 323 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T39 最终报告）。
 
-## 4. 硬约束（摘自 contract v7，违反即缺陷）
+## 4. 硬约束（摘自 contract v8，违反即缺陷）
 
 1. **唯一集成点**：客户端 Slot `conversation.view`（`name: 'conversation.view'`、`id: 'terminal-panel'`、`order: 30`、`locale` 词典 + `label` 函数）。禁止自绘 tab。
 2. **Client 半端形态**：`lib/client.js` 是**单文件 classic script**：`window.__ModuleLoader__.load({ id: 'dsh-terminal-panel', factory(require) {…} })`；**无 JSX/TS/import**；只允许 `require('react')`（平台模块表）；样式自己注入 `<style data-plugin-css>` 并在卸载时移除。禁止 `host.call` / `styles.insert`（那是动态 Cordis 包的能力）。
@@ -88,6 +88,11 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 16. **收起与抖动（v7）**：终态后**先展开 + 倒计时 10s，到点才折叠**（`expanded:false` 且 `deadline:null`，折叠后不渲染倒计时）；入场动画只在首挂载播放；工具栏单行不换行；面板填满高度（运行列固定 + 已完成区自适应滚动）；跟随滚动只用容器 `scrollTop=scrollHeight`（禁 `scrollIntoView`）；标题只显示命令第一条非空行（`firstCommandLine`）。
 17. **composer 隐藏（v7）**：终端 tab 生效时隐藏会话输入框；优先官方能力，其次按 scout 方案 A 在 `[data-conversation-content]` set/remove `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，无 body 兜底）；纯函数 `applyComposerHidden(node, visible)` 返回 boolean；绝不影响其它 tab；`useEffect` 副作用 + 幂等清理。
 18. **显示名与状态（v7）**：`Agent` 无 `name` 字段，显示名按 `sessionTitle → sessions 标题 → team/subagent 名称 → 「当前会话」` 取，空值 `—`，**禁止显示 sessionId 长串**；rootAgent 缺失时也要用任一 live agent 列队友。`meta-only` 终端列必须显示 `notice`、**不得显示「运行中」动画**；tier3 片段须标注「非实时全量」。
+19. **执行区网格（v8）**：固定宽卡片（默认 352，可拖 280–640）**自动换行** + 整体纵向滚动；**禁止**横向滑动/横向滚动条/右侧 `›` 溢出按钮/剩余角标（v5 横向列条款被 v6 取代，contract §8.1/§12.12 R9）。
+20. **Run 三态（v8）**：`running → linger(10s 滞留：倒计时 + 「收起」按钮，hover/focus 暂停) → completed`；**v7「新终态自动展开已完成分组」已删除（替换，非叠加）**，分组只由用户操作改变（contract §6.7/§12.12 R10）。
+21. **会话状态缓存 + resync（v8）**：模块级 `SESSION_CACHE`（LRU 4 / TTL 30min，`{view,cursors,revision,savedAt}`）；切 tab 回首屏不空、游标续传；`retryToken` 变化不清 view。**缓存未命中 / `revision` 回退 / 手动重试时发一次 `panel.poll {resync:true}`**（不发 removed；Host 未实现时静默降级）（contract §6.8/§4.2）。
+22. **动画与加载态（v8）**：离开执行区 fade+scale ≈180ms + FLIP 补位 200ms（仅 transform/opacity、不改布局高度）；reduced-motion 瞬时；**首帧前 skeleton ≠ 空态**（空态只在连接 ok 且确认 0 条时显示）。
+23. **Host 一致性补丁（v8）**：`removed` 与 `runs` **同帧互斥**（冲突以 runs 为准，`removed` 延后一帧）；`store.prune(now,{protect})` 保护本帧 discovery 已见 Run（防 job 结算后 removed/re-upsert 抖动）；**`revision` 回退 = 服务端重建** → 客户端清本地 view（保留筛选/分组）+ 丢弃在途帧 + 一次 resync（禁止按 `<=` 直接丢弃导致重载后冻住）。
 
 ## 5. 已知限制（已裁决，不要当 bug 修）
 
@@ -99,6 +104,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 6. **terminal 无 Agent 时只能看元信息（v7）**：`agents.get(sessionId)` 拿不到 live Agent 时默认走 `tools/execute` 事件兜底（`terminalController` 是侧栏终端注册表、默认关闭），`outputMode:'meta-only'` + `notice`，读不到连续实时输出（tier3 片段非全量）；此时停止按钮不可用（该降级仍优于静默 0 条）。
 7. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则在 `[data-conversation-content]` set/remove `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，无 body 兜底）；宿主 DOM 变更可能失效（终端 tab 仍可用，只是输入框未隐藏，其它 tab 不受影响）。
 8. **真机 5 项缺陷已代码侧修复，真机复验仍待做**（见 README「真机反馈修复（v7）」）；不得据此宣称已真机验收。
+9. **v8 展示层行为变更（不是缺陷）**：执行区横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 10s + 收起按钮）；切 tab 依赖会话缓存（LRU 4/TTL 30min，第 5 个会话不保证首屏不空）。
 
 ## 6. 安装与发布
 
@@ -111,8 +117,8 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v5 设计规格（验收基线，A–F 六板 + v5 可验收条目 A1–A13） |
-| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v7）**：集成/传输/数据模型/状态机/预算/冻结表/裁决 |
+| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v6 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A22） |
+| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v8）**：集成/传输/数据模型/状态机/预算/冻结表/裁决 |
 | [`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md) | scout T1 平台取证（FACT/INF/ASSUMPTION 事实来源） |
 | [`docs/research/terminal-panel-followup-2026-10-26.md`](docs/research/terminal-panel-followup-2026-10-26.md) | v7 真机缺陷取证（terminal 可见性/agent 解析/composer 方案；若文件存在） |
 | [`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md) | 验收矩阵（ui-spec ↔ 用例） |
@@ -126,14 +132,15 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 - 分支：`main`（发布前不要自行改分支名/强推）。
 - 提交信息类型：`feat:` / `fix:` / `test:` / `docs:` / `chore:`（必要时 `feat(deploy):` 这类 scope）。
 - **改动前先读契约**（`docs/architecture/contract.md`，尤其 §4/§11/§12）；实现与契约冲突先停下确认，不要静默改行为。
-- **契约变更**：必须同步 §0「版本与变更记录」（当前 v7），并说明触发方（Lead 裁决/审计/实现偏差）。
+- **契约变更**：必须同步 §0「版本与变更记录」（当前 v8），并说明触发方（Lead 裁决/审计/实现偏差）。
 - **测试不得「顺手改绿」**：禁止为了让用例通过而放宽断言或改 `tests/**` 的期望值；实现错就修实现，用例错需先说明理由并获批准。
 - 冻结表改动需 maintainer 批准；低风险文案/像素级差异见 contract §12.10（L1–L5）。
 - 文档写作用域各归其主（architect=契约/docs；backend=lib/host；frontend=lib/client.js；tester=tests/docs/testing；devops=deploy），改动不要越界。
 
 ## 9. 验收基线
 
-- **代码侧已交付**：`296 tests / 296 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（tester T34 最终报告，2026-10-26）。
+- **代码侧已交付**：`323 tests / 323 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（tester T39 最终报告，2026-10-26）。
+- **v8**：展示层（网格换行 / Run 三态 linger / 会话缓存 / FLIP+fade / 首帧 loading）+ host 一致性补丁（resync / removed-runs 互斥 / revision 回退恢复）——代码侧已修（T37/T41），真机复验待做；ui-spec v6 新增 A14–A22（均含 manual/Unverified 项）。
 - **v7 真机反馈 5 项**：terminal 记录可见 / 界面抖动 / 标题首行 / 输出含输入 / 收起时序 / composer 隐藏——代码侧已修（T31/T32），**真机复验待做**；ui-spec v5 新增 A1–A13 可验收条目（其中 A7/A8/A9/A10/A11/A12/A13 含真机/manual 项）；terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史 pty 不可回读，不计缺陷）。
 - **真机待验收**：ui-spec 有 **19 项 Unverified**（视觉/像素、指针/键盘交互、宿主集成行为、平台限制项、网络/权限异常、性能等），清单与步骤见 `docs/testing/integration-report.md` §10 与 `docs/install.md` §3。
 - **不得宣称已真机验收**，除非逐项执行并留下证据（截图/Console/Network 记录）。

@@ -200,3 +200,30 @@ tests/
 
 `A2/A3/A4/A13` 的**渲染级**（输入块/notice 实际排版）、`A7/A8` 真机目视抖动、`A9` 页面不滚动、`A10` composer 实际隐藏/切 tab 恢复、`A11` 真机 `terminal_open` 可见性（部署后新事件）、`A12` 真机显示名、`A5` 视觉效果——共 7 组 manual 项；另有既有 19 项 Unverified（见 `integration-report.md` §10）不变。
 
+## 12. v8 增量测试基线（T39，contract v8 / ui-spec v6）
+
+> 触发：真机反馈（横向滚动难用 / 终态跳变 / 切 tab 空屏 / 首帧空态闪烁）→ T37 Client v8 + T41 Host 一致性补丁。
+> 基线：`296 tests / 91 smoke`（v7）→ 本任务 **323 tests / 323 pass / 0 fail / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 12.1 新增用例（27 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/client/v8.test.mjs` | 20 | §11.2 v8 冻结表（53 键、v7 键不丢）、`SESSION_CACHE`/`createSessionCache`（LRU 4、TTL 30min 边界、命中刷新、delete/clear/size、非法入参、缓存命中不重建 view/cursors）、`isRevisionRollback`、`runPhase` 三态（running/linger/10s 到点/paused/pinned）、`lingerVisual`、`pauseLinger`/`resumeLinger`/`collapseLinger`（幂等/null）、FLIP `flipDeltas`、网格/FLIP/首帧 loading/缓存接线的静态断言（A14/A18/A19/A20/A21），以及 **DEF-1 回归（暂停冻结倒计时）** |
+| `tests/host/v8-consistency.test.mjs` | 7 | resync 全量重发（已终态 job/terminal 1–3 帧回来、`removed=[]`）、`cursors:null` 与 `resync:true` 等价、`removed∩runs=∅`（冲突以 runs 为准/正常 removed 路径）、`prune(now,{protect})` 保护、job-only 相邻帧无 removed↔重登记抖动、revision 单调（A21/A22） |
+
+### 12.2 本轮发现但未修的缺陷（已报 Lead）
+
+| 编号 | 级别 | 缺陷 | 位置/复现 | 处理 |
+|---|---|---|---|---|
+| DEF-1 | MEDIUM | hover/focus「暂停倒计时」只冻结 deadline，`lingerVisual` 的 remaining/progress 仍随 `now` 递减（悬停时倒计时继续数到 0） | `lib/client.js:731-742 lingerVisual`、`:744 pauseLinger`、UI 每 tick 传新 now（`RunColumn:2279`）；复现：`lingerVisual(paused,1000/5000).remaining` 应相同（修复前 10000/6000） | **已修（frontend 本轮）**：`pauseLinger` 记录 `frozenRemainingMs`、`lingerVisual` paused 时用冻结值、`resumeLinger` 清冻结值并重计 10s。回归断言：`tests/client/v8.test.mjs::DEF-1 回归：hover/focus 暂停期间 linger 倒计时/进度冻结，resume 后回到契约语义`（PASS） |
+
+### 12.3 覆盖映射位置
+
+- ui-spec v6 A14–A22 ↔ 用例：`docs/testing/acceptance-matrix.md` **§13**。
+- 覆盖方式：纯函数（缓存/三态/FLIP/revision）+ Host 帧不变量 + 源码级静态断言；渲染/视觉/真机行为仍标 Unverified。
+
+### 12.4 仍未覆盖（只能真机验证）
+
+A14 网格换行目视效果、A15 三态卡片/计时器视觉、A16「收起」按钮真实点击、A17 hover/focus 真实暂停（DEF-1 已修，纯函数回归 PASS；真机悬停待验）、A18 切 tab 首屏恢复真实时序、A19 FLIP/fade 观感、A20 首帧 skeleton→数据过渡、A21 缓存未命中/服务端重载后 resync 真机、A22 job-only 无空态闪烁；另既有 19 项 Unverified（`integration-report.md` §10）不变。
+
