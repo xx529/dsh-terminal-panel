@@ -225,3 +225,111 @@ test('buildPollFrame: 默认预算 65536（§9）在多 run 时触发丢弃', { 
   assert.ok(delivered <= 65_536, `已交付输出 ${delivered} 字节超过默认预算`)
   for (const id of out.dropped) assert.ok(!(id in out.nextCursors), 'dropped run 不得出现在 nextCursors')
 })
+
+/* ==========================================================================
+ * T15 / H1 回归：Tier2 单 Run 保底 + 新 additive 导出（backend 4bc721e）
+ * 契约 v5 §4.3：至少保留 1 条 Run；只裁输出文本；trimmedRunIds + deliveredBytes；
+ * nextCursors 只前移到实际交付字节；元信息在 store 侧已截断（见 panel H1-a）。
+ * ========================================================================== */
+
+function hugeRun(runId, bytes = 5000) {
+  // Host 侧线上 delta 只有 chunks（client 本地才累积 text 字段）；这里不能用 makeChannelDelta，
+  // 否则 fixture 的 text 会重复计入帧体积、把 Tier2 保底测试变成假失败。
+  return makeRun({
+    runId,
+    kind: 'job',
+    title: '后台任务',
+    startedAt: 1_000,
+    output: {
+      job: {
+        chunks: [makeChunk('z'.repeat(bytes), 1, 'job')],
+        nextCursor: bytes,
+        lossy: false,
+        gapBefore: false,
+        truncated: false,
+      },
+    },
+  })
+}
+
+test('H1 Tier2 保底：单 Run 超上限时保留 1 条，返回 trimmedRunIds/deliveredBytes 且帧 ≤ 预算', { skip }, () => {
+  const run = hugeRun('job:huge')
+  const frame = makeFrame({ runs: [run], nextCursors: { 'job:huge': { job: 5000 } } })
+  const out = fnOf(m, 'boundFrameDetailed')(frame, 4096)
+  assert.equal(out.value.runs.length, 1, 'H1 保底：至少保留 1 条 Run（不得丢成空帧）')
+  assert.equal(out.value.runs[0].runId, 'job:huge')
+  assert.ok(out.trimmedRunIds.includes('job:huge'), '被裁输出的 Run 必须记入 trimmedRunIds')
+  const delivered = out.deliveredBytes['job:huge']?.job
+  assert.ok(Number.isFinite(delivered) && delivered > 0 && delivered < 5000, `deliveredBytes 必须是 1..4999 的前缀，实际 ${delivered}`)
+  assert.equal(out.value.nextCursors['job:huge']?.job, delivered, 'nextCursors 只前移到实际交付字节（不得越过未交付）')
+  assert.equal(out.value.truncated, true)
+  assert.ok(Buffer.byteLength(JSON.stringify(out.value), 'utf8') <= 4096, 'Tier2 保底帧仍必须 ≤ maxBytes')
+  // 元信息/status 必须保留（裁的只是输出文本）
+  assert.equal(out.value.runs[0].status, 'running')
+  assert.equal(out.value.runs[0].kind, 'job')
+})
+
+test('H1 Tier2 保底：preferRunId 优先保底指定 Run（dropStreak 载体）', { skip }, () => {
+  const runs = [hugeRun('job:a', 4000), hugeRun('job:b', 4000), hugeRun('job:c', 4000)]
+  const frame = makeFrame({ runs, nextCursors: Object.fromEntries(runs.map((r) => [r.runId, { job: 4000 }])) })
+  const out = fnOf(m, 'boundFrameDetailed')(frame, 2048, { preferRunId: 'job:b' })
+  assert.equal(out.value.runs.length, 1)
+  assert.equal(out.value.runs[0].runId, 'job:b', 'preferRunId 必须优先于「最新 running」规则')
+  assert.ok(out.deliveredBytes['job:b'] !== undefined)
+})
+
+test('H1 pickFallbackRun：优先最新 running，无 running 时取最新', { skip }, () => {
+  const pick = fnOf(m, 'pickFallbackRun')
+  const completed = makeRun({ runId: 'old-completed', status: 'completed', startedAt: 100, finishedAt: 200 })
+  const runningOld = makeRun({ runId: 'run-old', status: 'running', startedAt: 150 })
+  const runningNew = makeRun({ runId: 'run-new', status: 'running', startedAt: 300 })
+  assert.equal(pick([completed, runningOld, runningNew])?.runId, 'run-new')
+  assert.equal(pick([completed, runningOld])?.runId, 'run-old')
+  assert.equal(pick([completed])?.runId, 'old-completed')
+  assert.equal(pick([completed], 'old-completed')?.runId, 'old-completed')
+  assert.equal(pick([]), undefined)
+})
+
+test('H1 trimRunOutput：单 chunk 按字节前缀裁剪且游标随实际交付', { skip }, () => {
+  const trim = fnOf(m, 'trimRunOutput')
+  const run = hugeRun('job:t', 5000)
+  const out = trim(run, 1024, { job: 5000 })
+  const text = (out.run.output?.job?.chunks ?? []).map((c) => c.text).join('')
+  assert.equal(Buffer.byteLength(text, 'utf8'), 1024, `必须精确裁到 1024B，实际 ${Buffer.byteLength(text)}`)
+  assert.equal(out.cursors.job, 1024, '游标 = 实际交付字节')
+  assert.equal(out.deliveredBytes.job, 1024)
+  assert.equal(out.trimmed, true)
+})
+
+test('H1 splitDeltaAtBytes：单 chunk 部分交付的前缀+后缀互补且不重不丢', { skip }, () => {
+  const split = fnOf(m, 'splitDeltaAtBytes')
+  const source = 'x'.repeat(1000)
+  const delta = { chunks: [{ at: 1, text: source }], nextCursor: 1000 }
+  const out = split(delta, 400)
+  const head = (out.delivered?.chunks ?? []).map((c) => c.text).join('')
+  const tail = (out.remainder?.chunks ?? []).map((c) => c.text).join('')
+  assert.equal(head, source.slice(0, 400))
+  assert.equal(tail, source.slice(400))
+  assert.equal(head + tail, source)
+})
+
+test('H1 遗留 R1：splitDeltaAtBytes 多 chunk 部分交付不得越界（todo：当前越界，见 integration-report §13 R1）', {
+  skip,
+  todo: '已报 Lead：splitDeltaAtBytes 在部分交付后未 break，后续 chunk 被错误并入 delivered（真实 jobs.readAt 多 chunk 时静默丢字节）',
+}, () => {
+  const split = fnOf(m, 'splitDeltaAtBytes')
+  const source = 'A'.repeat(100) + 'B'.repeat(100) + 'C'.repeat(100)
+  const delta = {
+    chunks: [
+      { at: 1, text: 'A'.repeat(100) },
+      { at: 2, text: 'B'.repeat(100) },
+      { at: 3, text: 'C'.repeat(100) },
+    ],
+    nextCursor: 300,
+  }
+  const out = split(delta, 150)
+  const head = (out.delivered?.chunks ?? []).map((c) => c.text).join('')
+  const tail = (out.remainder?.chunks ?? []).map((c) => c.text).join('')
+  assert.equal(Buffer.byteLength(head, 'utf8'), 150, `delivered 必须恰好 150B，实际 ${Buffer.byteLength(head)}B`)
+  assert.equal(head + tail, source, '前缀+后缀必须等于源（不重不丢、顺序不变）')
+})

@@ -516,3 +516,78 @@ PASS  §11.1/§11.2 冻结导出表逐项核对：0 缺失
 
 - 未改：`lib/**`、`package.json`、`cordis.patch.yml`、`docs/architecture/**`、`docs/design/**`、`tests/**`（T6 只写本报告；bashLive 用例在 task-11 单独提交）。
 - 唯一发现并修正的测试侧问题（L5）在 `tests/helpers/fakes.mjs`（`ctx.on` disposer 形状），属测试夹具且已随复跑验证 236/236 全绿；不改变生产行为。
+
+---
+
+## 13. H1/M2 回归结论（T15 / task-14，backend `4bc721e`）
+
+> 触发：backend 修复 H1（单 Run livelock + 元信息截断）与 M2（预算/选择集错配），commit `4bc721e`。
+> 契约基线：contract **v4.1/v5** §4.3（H1 保底规则、M2 同集合约束、`bounded.nextCursors` 唯一提交来源）。本节结论**更新 §9「发布前必须修」**。
+
+### 13.1 命令与计数（2026-10-26，HEAD `4bc721e`）
+
+```bash
+node --test "tests/**/*.test.mjs"
+# → # tests 248 / # pass 246 / # fail 0 / # skipped 0 / # todo 2 ; exit 0
+node scripts/smoke-host.mjs
+# → PASS — 87/87 checks passed ; exit 0
+```
+
+- 基线：T6 收尾时 237 用例（含 task-11 的 bashLive 用例）；本轮 **+11 用例**（H1/M2 回归 8 + H1 遗留 todo 2 + Tier2 保底/辅助 1 组）→ 248。
+- `todo 2` 是本轮**新发现的 H1 修复遗留**（R1、R2），不是 skip：见 §13.4/§13.5。
+
+### 13.2 逐项回归结果（task-14 要求的 5 组）
+
+| # | 回归点 | 用例（`tests/host/`） | 结果 | 关键证据 |
+|---|---|---|---|---|
+| H1-a | 默认配置 + 单 Run `command`=120KB（多字节，UTF-8 实测量级 100KB+）→ 不再 livelock | `panel.test.mjs::H1-a：默认配置 + 单 Run command=100KB 时 2 轮内必须交付且 metaTruncated（不再 livelock）` | **PASS** | 第 1 帧 `runs.length===1`；`metaTruncated===true`；`command` ≤4096B 且以 `…` 结尾；`nextCursors.stdout===3`（等于已交付）；第 2 帧 `truncated===false` |
+| H1-b | `maxFrameBytes=4096` + 单 Run 5000B → 逐帧前缀交付，累计不重不丢 | `panel.test.mjs::H1-b：maxFrameBytes=4096 + 单 Run 5000B 输出 → 逐帧前缀交付，累计不重不丢` | **PASS**（单 chunk 源） | 8 帧内累计 `delivered===SOURCE`（5000B 逐字节一致）；≥2 帧有内容；无 3 连零交付；每帧 JSON ≤4096 |
+| H1-c | `maxFrameBytes=1024` + 两条 5KB Run → 3 帧内 A/B 可见、无 3 连零字节、帧 <262144 | `panel.test.mjs::H1-c：maxFrameBytes=1024 + 两条 5KB Run → 3 帧内 A/B 都至少出现一次，且无 3 连零交付` | **PASS**（按 Lead 裁决口径 ①–④） | 3 帧内 `job-A`/`job-B` 均出现；每 Run「零字节交付」连续帧 <3；每帧 JSON <262144 |
+| M2 | 40 个 running（各 1KB）→ 首帧 32 列且 32/32 有输出 | `panel.test.mjs::M2：40 个 running（各 1KB 输出）→ 首帧 32 列且每列都有输出（预算与选择集同集合）` | **PASS** | 首帧 `runs.length===32`，有输出列 **32/32**（修复前 0/32） |
+| 新导出/字段 | `boundFrameDetailed` 保底字段、preferRunId、pickFallbackRun、trimRunOutput、splitDeltaAtBytes（单 chunk） | `frame.test.mjs::H1 Tier2 保底：单 Run 超上限时保留 1 条，返回 trimmedRunIds/deliveredBytes 且帧 ≤ 预算` 等 5 用例 | **PASS** | `runs.length===1`；`trimmedRunIds` 含该 Run；`deliveredBytes.job` 有限且 1..4999；`value.nextCursors.job===deliveredBytes.job`；`preferRunId` 生效；单 chunk 前缀+后缀互补 |
+
+### 13.3 关于「Tier2 保底帧可能超过 maxFrameBytes」
+
+T6 §8 的 H1 复现里我们按「Tier2 整帧 JSON ≤ maxFrameBytes」判断；Lead 已裁决（contract v4.1/v5 §4.3）：**H1 保底明确允许整帧超过 `maxFrameBytes`，但必须 < `MAX_RESPONSE_BYTES(262144)`**。因此：
+
+- H1-c 的断言改为「每个 Run 3 帧内可见 + 无 3 连零字节 + 帧 <262144」，不按 1024 判失败；实测 `maxFrameBytes=1024` 时保底帧约 6048B（<262144），**符合裁决，不再记为缺陷**。
+- §8 中「Tier2 ≤ maxFrameBytes」的旧表述以 v4.1/v5 为准（**本条为契约收敛，不是实现缺陷**）。
+
+### 13.4 遗留 R1（HIGH，H1 修复未完整）：`jobs.readAt` 多 chunk 时部分交付会静默丢字节
+
+- **现象**：真实 `ctx.jobs.readAt` 返回 `{chunks: JobChunk[]}`（F8/Dsh 契约允许一次返回多 chunk），当 Tier2 触发**部分交付**时，逐帧累计交付会**少于源**，且 `nextCursors` 跳到未交付位置，之后该 Run 不再出帧（客户端永久停在 running/缺尾部）。
+- **复现**（自定义 jobs 服务：5000B 源、每次 `readAt` 返回 200B/chunk 的多 chunk；`maxFrameBytes=4096`）：
+  ```
+  frame1: textLen=2473 totalDelivered=2473 nextCursor=2473 size=4096
+  frame2: textLen=127  totalDelivered=2600 nextCursor=4000 size=1187   <- 游标 4000 > 已交付 2600（跳过 1400B）
+  frame3..8: runs=0 textLen=0 totalDelivered=2600
+  RESULT delivered 2600 / 5000 prefixOK true
+  ```
+  单元级同源：`splitDeltaAtBytes({chunks:[A100,B100,C100]}, 150)` → `delivered=250, remainder=50`（应 150/150）。
+- **定位**：
+  - `lib/host/frame.mjs::splitDeltaAtBytes`（约 439-475 行）：部分交付后未 `break`，且 `used += bytes`（整 chunk 字节）继续循环；后续 chunk 用 `headBytes(text, deliveredBytes - used)`，而 `headBytes` 对**负预算**回退 32768（`lib/host/frame.mjs:480`）→ 后续 chunk 整块被并入 `delivered`、`remainder` 短缺。
+  - 叠加 `lib/host/cursors.mjs::limitDelta`（约 325-333 行）：首 chunk 超预算时也不切块（保留整 chunk）→ 触发部分交付分支的概率更高。
+  - 结果：`bounded.nextCursors` 与实际交付字节不一致 → 违反 §4.3 不变量②（游标 ≤ 已交付字节），`store.commitCursorsFromFrame` 提交后服务端跳过未读区间。
+- **影响**：真实后台任务（job）在「大输出 + 触发 Tier2 部分交付」时可能**永久丢失尾部输出**、面板列卡在 running；单 chunk 的假服务/backend smoke 覆盖不到。**HIGH，发布前必须修**。
+- **建议修法**（不修代码，交 backend）：`splitDeltaAtBytes` 对部分 chunk 交付后立即停并据剩余字节构造 remainder（remainder 的第一块 = 该 chunk 尾部，其余原样）；`headBytes` 显式 `maxBytes<=0 → ''/0`；`limitDelta` 用 `headBytes` 切首 chunk 并推进 `nextCursor`；补「游标 ≤ 已交付」断言。
+- **回归用例（已作为 todo 登记，修好后去掉 todo 即转正）**：
+  - `tests/host/frame.test.mjs::H1 遗留 R1：splitDeltaAtBytes 多 chunk 部分交付不得越界（todo：当前越界，见 integration-report §13 R1）`
+  - `tests/host/panel.test.mjs::H1-b(多 chunk)：jobs.readAt 返回多 chunk 时逐帧累计交付不重不丢（todo：当前失败，见 integration-report §13 R1）`
+
+### 13.5 遗留 R2（LOW，非阻塞，合并到 §8 L 类）：`trimRunOutput(allowBytes=0)` 不裁文本
+
+- `lib/host/frame.mjs::headBytes` 对 `maxBytes=0` 回退默认 32768（`limit = maxBytes>0 ? maxBytes : 32768`），导致 `trimRunOutput(run, 0)` 仍保留整段输出文本、`deliveredBytes` 记为全量。
+- 在 H1 保底「零输出也必须发元信息」路径上，这会让保底帧比必要体积更大（仍在 262144 内，且 Lead 已允许保底帧超 `maxFrameBytes`），**不阻塞发布**；但 `deliveredBytes=0` 语义不准确，建议 backend 顺手修（一行：`maxBytes<=0 → 0`）。
+- 本次**不**作为独立 todo 保留（避免与裁决冲突）；仅记录于此。
+
+### 13.6 「发布前必须修」最小集合（更新 §9）
+
+| 项 | 状态 |
+|---|---|
+| H1-a/H1-b（单 chunk）/H1-c/M2 | **已解除**（回归 PASS；默认配置与单 chunk 路径不再 livelock/错配） |
+| **R1**：`jobs.readAt` 多 chunk 部分交付丢字节（游标越过未交付字节） | **新增，必须修**（HIGH；§13.4 有复现；修后把 2 个 todo 转正并复跑） |
+| M1：ui-spec §3.7 两项菜单 | **已裁决不做**（contract v4.1 §12.8 + README 已知限制已落字）→ 发布口径解除 |
+| task-11 bashLive prevention 载体 | **已落地**（`cad7fa3`，`status: closed`） |
+| 真机 19 项 Unverified | **仍必须**（本次审计无真实 DSH 页面；清单见 §10） |
+
+结论：**只要 R1 修掉并回归通过，本报告的「代码侧发布前必须修」即清零**；剩余为真机验收（§10）。

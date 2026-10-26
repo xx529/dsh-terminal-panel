@@ -323,3 +323,175 @@ test('availability.bashLive=false 时 panel.poll 仍返回完整帧、bash 来�
   await panel.dispose?.()
   assert.equal(fake.listeners.length, 0, 'panel.dispose 后监听必须撤销')
 })
+
+/* ==========================================================================
+ * T15 / H1、M2 回归（backend 4bc721e 修复后）
+ * H1: 单 Run 元信息/输出超 Tier2 上限导致帧 livelock（Run 永不显示）。
+ * M2: planReads 预算目标与 takeEntries 选择集错配（40 running 首帧 0 输出）。
+ * 断言口径：contract v4.1 §4.3（H1 保底规则 / M2 同集合约束）。
+ * ========================================================================== */
+
+test('H1-a：默认配置 + 单 Run command=100KB 时 2 轮内必须交付且 metaTruncated（不再 livelock）', { skip }, async () => {
+  const fake = createFakeHostCtx({
+    services: baseServices(),
+    config: {},
+  })
+  const panel = fnOf(m, 'createPanel')({ ctx: fake.ctx, config: {}, now: () => 1_700_000_000_000 })
+  // 多字节字符 40000 个 = 120KB UTF-8，远超 Tier2；修复前该 Run 永远不可见
+  const hugeCommand = '命令'.repeat(20_000)
+  panel.store.upsert({
+    runId: 'bash:h1a',
+    kind: 'bash',
+    ownerSessionId: 'root-1',
+    agent: { id: 'root-1', name: 'lead', role: 'lead' },
+    title: 'Bash',
+    command: hugeCommand,
+    cwd: '/repo',
+    startedAt: 1_699_999_999_000,
+    status: 'running',
+    outputMode: 'live',
+    stoppable: false,
+    handle: { callId: 'h1a' },
+  })
+  panel.store.setOutput('bash:h1a', 'stdout', {
+    chunks: [{ at: 1_700_000_000_000, text: 'ok\n' }],
+    nextCursor: 3,
+    lossy: false,
+    gapBefore: false,
+    truncated: false,
+  })
+
+  const r = await rpc(panel, 'panel.poll', { sessionId: 'root-1' })
+  assert.equal(r.ok, true, JSON.stringify(r.error))
+  assert.equal(r.value.runs.length, 1, `第 1 帧必须交付该 Run（修复前连续 3 帧 runs:[]），实际 ${JSON.stringify(r.value.runs.map((x) => x.runId))}`)
+  const run = r.value.runs[0]
+  assert.equal(run.runId, 'bash:h1a')
+  assert.equal(run.metaTruncated, true, '超长 command 必须标 metaTruncated')
+  const commandBytes = Buffer.byteLength(run.command, 'utf8')
+  assert.ok(commandBytes <= 4096, `command 必须 ≤ 4KiB，实际 ${commandBytes}B`)
+  assert.ok(run.command.endsWith('…'), '截断处必须追加省略号')
+  assert.ok(Buffer.byteLength(run.command, 'utf8') < Buffer.byteLength(hugeCommand, 'utf8'))
+  // 游标前移到实际交付字节（stdout=3）
+  assert.equal(r.value.nextCursors['bash:h1a']?.stdout, 3, 'nextCursors 必须前移到已交付字节')
+
+  // 第 2 轮：不得因该 Run 再次丢帧/livelock
+  const r2 = await rpc(panel, 'panel.poll', { sessionId: 'root-1', cursors: r.value.nextCursors })
+  assert.equal(r2.ok, true)
+  assert.equal(r2.value.truncated, false, '已交付后不得继续 truncated（livelock 回归信号）')
+  await panel.dispose?.()
+  assert.equal(fake.listeners.length, 0)
+})
+
+test('H1-b：maxFrameBytes=4096 + 单 Run 5000B 输出 → 逐帧前缀交付，累计不重不丢', { skip }, async () => {
+  const SOURCE = '0123456789'.repeat(500) // 5000B 可识别模式
+  const jobs = createFakeJobsService([{ id: 'job-h1b', owner: 'root-1', status: 'running', output: SOURCE }])
+  const services = baseServices({ jobs })
+  const { panel } = makePanel(services, { maxFrameBytes: 4096 })
+
+  let cursors = {}
+  let delivered = ''
+  const perFrameBytes = []
+  let visibleFrames = 0
+  for (let i = 0; i < 8; i += 1) {
+    const r = await rpc(panel, 'panel.poll', { sessionId: 'root-1', cursors })
+    assert.equal(r.ok, true, JSON.stringify(r.error))
+    const run = (r.value.runs ?? []).find((x) => x.runId.includes('job-h1b'))
+    const frameText = run === undefined ? '' : (run.output?.job?.chunks ?? []).map((c) => c.text).join('')
+    if (frameText.length > 0) visibleFrames += 1
+    perFrameBytes.push(Buffer.byteLength(frameText, 'utf8'))
+    assert.ok(run === undefined || Buffer.byteLength(JSON.stringify(r.value), 'utf8') <= 4096, '任何帧 JSON 都不得超过 maxFrameBytes')
+    delivered += frameText
+    cursors = r.value.nextCursors
+    if (delivered.length >= SOURCE.length) break
+  }
+  assert.equal(delivered, SOURCE, `累计交付必须与源完全一致（不重不丢），实际 ${delivered.length}/${SOURCE.length}`)
+  assert.ok(visibleFrames >= 2, `必须 ≥2 帧有内容（逐帧前缀），实际 ${visibleFrames} 帧`)
+  // 不得出现连续 3 帧零字节交付
+  let zeroStreak = 0
+  for (const bytes of perFrameBytes) {
+    zeroStreak = bytes === 0 ? zeroStreak + 1 : 0
+    assert.ok(zeroStreak < 3, `不得连续 3 帧零交付，实际序列 ${JSON.stringify(perFrameBytes)}`)
+  }
+  await panel.dispose?.()
+})
+
+test('H1-c：maxFrameBytes=1024 + 两条 5KB Run → 3 帧内 A/B 都至少出现一次，且无 3 连零交付', { skip }, async () => {
+  const jobs = createFakeJobsService([
+    { id: 'job-A', owner: 'root-1', status: 'running', startedAt: 1_000, output: 'A'.repeat(5_000) },
+    { id: 'job-B', owner: 'root-1', status: 'running', startedAt: 2_000, output: 'B'.repeat(5_000) },
+  ])
+  const { panel } = makePanel(baseServices({ jobs }), { maxFrameBytes: 1024 })
+  let cursors = {}
+  const seen = new Set()
+  const streak = new Map() // runId -> 连续「零字节交付」帧数（未出现或出现但 0 字节）
+  const frames = []
+  for (let i = 0; i < 3; i += 1) {
+    const r = await rpc(panel, 'panel.poll', { sessionId: 'root-1', cursors })
+    assert.equal(r.ok, true, JSON.stringify(r.error))
+    // Lead 裁决（contract v4.1 §4.3 + v5 对齐）：Tier2 保底明确允许整帧超过 maxFrameBytes，
+    // 但必须 < MAX_RESPONSE_BYTES(262144)；不按预算超限判失败。
+    assert.ok(Buffer.byteLength(JSON.stringify(r.value), 'utf8') < 262144, '不得突破 Tier3 硬上限')
+    const ids = new Set((r.value.runs ?? []).map((run) => run.runId))
+    frames.push([...ids])
+    for (const id of ids) seen.add(id)
+    for (const id of ['job:job-A', 'job:job-B']) {
+      // 「零字节交付」= 本帧未出现，或出现但输出字节为 0
+      const run = (r.value.runs ?? []).find((x) => x.runId === id)
+      const bytes = run === undefined ? 0 : (run.output?.job?.chunks ?? []).reduce((n, c) => n + Buffer.byteLength(c.text ?? '', 'utf8'), 0)
+      streak.set(id, bytes === 0 ? (streak.get(id) ?? 0) + 1 : 0)
+      assert.ok((streak.get(id) ?? 0) < 3, `${id} 不得连续 3 帧零字节交付（实际 ${streak.get(id)} 帧）`)
+    }
+    cursors = r.value.nextCursors
+  }
+  assert.ok(seen.has('job:job-A'), `3 帧内 A 必须至少出现一次，实际 ${JSON.stringify(frames)}`)
+  assert.ok(seen.has('job:job-B'), `3 帧内 B 必须至少出现一次，实际 ${JSON.stringify(frames)}`)
+  await panel.dispose?.()
+})
+
+test('M2：40 个 running（各 1KB 输出）→ 首帧 32 列且每列都有输出（预算与选择集同集合）', { skip }, async () => {
+  const jobs = createFakeJobsService()
+  for (let i = 0; i < 40; i += 1) {
+    jobs.addJob({ id: `job-m2-${i}`, owner: 'root-1', status: 'running', startedAt: 1_000 + i, output: String(i).padStart(4, '0') + 'x'.repeat(1_000) })
+  }
+  const { panel } = makePanel(baseServices({ jobs }))
+  const r = await rpc(panel, 'panel.poll', { sessionId: 'root-1' })
+  assert.equal(r.ok, true, JSON.stringify(r.error))
+  assert.equal(r.value.runs.length, 32, `首帧必须返回 32 列，实际 ${r.value.runs.length}`)
+  const withOutput = r.value.runs.filter((run) => (run.output?.job?.chunks ?? []).length > 0)
+  assert.equal(withOutput.length, 32, `首帧 32 列都必须有输出（修复前 0/32），实际 ${withOutput.length}/32`)
+  for (const run of withOutput) {
+    assert.ok((run.output.job.chunks ?? []).reduce((n, c) => n + Buffer.byteLength(c.text, 'utf8'), 0) > 0)
+  }
+  await panel.dispose?.()
+})
+
+test('H1-b(多 chunk)：jobs.readAt 返回多 chunk 时逐帧累计交付不重不丢（todo：当前失败，见 integration-report §13 R1）', {
+  skip,
+  todo: 'H1 修复未完整：splitDeltaAtBytes 多 chunk 部分交付越界 + limitDelta 不切 chunk，真实 jobs.readAt 多 chunk 时静默丢字节',
+}, async () => {
+  // 真实 JobOutputRead.chunks 可能是数组（F8/Dsh jobs.readAt 返回 JobChunk[]），而 H1-b 现有用例的假服务只返回单 chunk。
+  const SOURCE = Array.from({ length: 5000 }, (_, i) => String.fromCharCode(65 + (i % 26))).join('')
+  const jobs = {
+    list: () => [{ id: 'job-multi', kind: 'background', label: 'multi', owner: 'root-1', status: 'running', startedAt: 1_000, output: { total: SOURCE.length } }],
+    readAt: (id, from) => {
+      const text = SOURCE.slice(from)
+      const chunks = []
+      for (let i = 0; i < text.length; i += 200) chunks.push({ at: 1, text: text.slice(i, i + 200) })
+      return { chunks, next: from + text.length, lossy: false }
+    },
+    kill: () => 'requested',
+  }
+  const { panel } = makePanel(baseServices({ jobs }), { maxFrameBytes: 4096 })
+  let cursors = {}
+  let delivered = ''
+  for (let i = 0; i < 12; i += 1) {
+    const r = await rpc(panel, 'panel.poll', { sessionId: 'root-1', cursors })
+    assert.equal(r.ok, true, JSON.stringify(r.error))
+    const run = (r.value.runs ?? []).find((x) => x.runId === 'job:job-multi')
+    delivered += run === undefined ? '' : (run.output?.job?.chunks ?? []).map((c) => c.text).join('')
+    cursors = r.value.nextCursors
+    if (delivered.length >= SOURCE.length) break
+  }
+  assert.equal(delivered, SOURCE, `多 chunk 源必须逐字节完整交付，实际 ${delivered.length}/${SOURCE.length}`)
+  await panel.dispose?.()
+})
