@@ -52,6 +52,65 @@ function makeAgent(id) {
 }
 
 /**
+ * 用 mock ctx 直接装配 panel（等价于 apply 内部：createPanel + start）。
+ * apply 本身按 cordis 插件契约不返回值（H2），行为断言从这里拿实例。
+ * @param {{ctx: any}} mock
+ * @param {Record<string, unknown>} [config]
+ */
+function startPanel(mock, config) {
+  const panel = createPanel({ ctx: mock.ctx, config })
+  panel.start()
+  return panel
+}
+
+/** 构造 mock IncomingMessage（供 exact 路由 handler 直调）。 */
+function createMockRequest({ method = 'POST', body, headers = {} } = {}) {
+  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body), 'utf8')]
+  return {
+    method,
+    url: '/terminal-panel/rpc',
+    headers: { 'content-type': 'application/json', ...headers },
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) yield chunk
+    },
+  }
+}
+
+/** 构造 mock ServerResponse，记录 status/body。 */
+function createMockResponse() {
+  const state = { status: 0, headers: {}, body: '' }
+  return {
+    state,
+    writeHead(status, headers) {
+      state.status = status
+      state.headers = headers ?? {}
+    },
+    setHeader() {},
+    end(body) {
+      if (body !== undefined) state.body += String(body)
+    },
+  }
+}
+
+/**
+ * 直调 exact 路由 handler（端到端验证 HTTP 信封/错误码）。
+ * @param {{handler: Function}} route
+ * @param {{method?: string, body?: unknown, headers?: Record<string,string>}} spec
+ */
+async function invokeRoute(route, spec) {
+  const req = createMockRequest(spec)
+  const res = createMockResponse()
+  await route.handler(req, res)
+  let parsed
+  try {
+    parsed = JSON.parse(res.state.body)
+  } catch {
+    parsed = undefined
+  }
+  return { status: res.state.status, body: parsed, raw: res.state.body }
+}
+
+/**
  * mock cordis Context。
  * @param {{services?: Record<string, any>}} [options]
  */
@@ -337,36 +396,44 @@ async function main() {
   console.log('dsh-terminal-panel · host smoke (mock ctx)')
 
   // ---------------------------------------------------------------- 0. 装配
-  section('0. assembly (apply / route / dispose)')
+  section('0. assembly (apply / route handler / dispose)')
   {
     const shell = createShellService()
     const mock = createMockContext({
       services: {
         shell,
+        tools: {},
         jobs: createJobsService(),
         terminals: createTerminalService(new Map()),
         agents: { get: () => undefined },
         subagents: { listDescendants: async () => [] },
       },
     })
-    const exported = apply(mock.ctx, {})
+    const returned = apply(mock.ctx, {})
     check(name === 'terminal-panel', 'export name = terminal-panel', name)
     check(inject.join(',') === 'webServer,connection', 'export inject = [webServer, connection]', inject)
+    // Cordis 插件契约：apply 返回值会被当作 effect；普通对象 → TypeError("Invalid effect") = H2 根因。
+    check(returned === undefined, 'apply returns undefined (cordis effect contract, H2)', typeof returned)
     check(mock.routes.length === 1, 'registers exactly one route', mock.routes.length)
     check(mock.routes[0]?.kind === 'exact', 'route kind = exact', mock.routes[0]?.kind)
     check(mock.routes[0]?.path === '/terminal-panel/rpc', 'route path = /terminal-panel/rpc', mock.routes[0]?.path)
     check(typeof mock.routes[0]?.handler === 'function', 'route has handler')
-    check(exported?.panel !== undefined, 'apply returns panel instance')
+
+    // 直调真实 handler：验证 HTTP 信封 / 错误码（与真机 curl 等价）
+    const helloResponse = await invokeRoute(mock.routes[0], { body: { method: 'panel.hello', params: {} } })
+    check(helloResponse.status === 200 && helloResponse.body?.ok === true, 'POST panel.hello → 200 {ok:true}', helloResponse.status)
+    check(helloResponse.body?.value?.limits?.pollHintMs === 250, 'hello limits.pollHintMs = 250', helloResponse.body?.value?.limits?.pollHintMs)
+    const methodResponse = await invokeRoute(mock.routes[0], { method: 'GET' })
+    check(methodResponse.status === 405 && methodResponse.body?.error?.code === 'method', 'GET → 405 JSON {code:"method"}', methodResponse.status)
+    const unknownResponse = await invokeRoute(mock.routes[0], { body: { method: 'panel.nope', params: {} } })
+    check(unknownResponse.body?.ok === false && unknownResponse.body?.error?.code === 'unknown-method', 'unknown method → 200 {code:"unknown-method"}', unknownResponse.body?.error?.code)
+
     const wrapped = shell.execute
     check(typeof wrapped === 'function' && wrapped.name === 'terminalPanelShellExecute', 'shell.execute is tee-wrapped')
     // cleanup
     for (const cleanup of mock.cleanups) if (typeof cleanup === 'function') cleanup()
     check(mock.routes.length === 0, 'dispose removes the route', mock.routes.length)
     check(shell.execute !== wrapped, 'dispose restores original shell.execute')
-    const hello = await exported.panel.handleRpc('panel.hello', {})
-    check(hello.ok === true, 'hello still answers after dispose (panel object alive)', hello.ok)
-    const unknown = await exported.panel.handleRpc('panel.nope', {})
-    check(unknown.ok === false && unknown.error.code === 'unknown-method', 'unknown method → unknown-method', unknown)
   }
 
   // -------------------------------------------------------- 1. bash with tee
@@ -382,7 +449,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel } = apply(mock.ctx, {})
+    const panel = startPanel(mock, {})
 
     const exec = { callId: 'call-1', name: 'bash', arguments: { command: 'echo hi' }, agent: rootAgent }
     const body = async () => {
@@ -452,7 +519,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel } = apply(mock.ctx, {})
+    const panel = startPanel(mock, {})
     const hello = await panel.handleRpc('panel.hello', {})
     check(hello.value.availability.bash.available === true, 'bash source still available without tee')
     check(hello.value.availability.bashLive.available === false, 'bashLive = unavailable (no shell)')
@@ -509,7 +576,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel } = apply(mock.ctx, {})
+    const panel = startPanel(mock, {})
     const exec = { callId: 'call-9', name: 'bash', arguments: { command: 'slow task' }, agent: rootAgent }
     await mock.runToolsExecute(exec, async () => {
       const spec = shell.resolve({ command: 'slow task', dshEnv: { DSH_SESSION_ID: 'session-root' } })
@@ -555,7 +622,7 @@ async function main() {
         },
       },
     })
-    const { panel } = apply(mock.ctx, {})
+    const panel = startPanel(mock, {})
     const first = await panel.handleRpc('panel.poll', { sessionId: 'session-root' })
     check(first.value.sessions.length === 2, 'tree = root + 1 child (diagnostic skipped)', first.value.sessions.length)
     check(first.value.sessions[0]?.role === 'root', 'root is first', first.value.sessions[0])
@@ -604,7 +671,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel } = apply(mock.ctx, {})
+    const panel = startPanel(mock, {})
     const cursorsOf = (frame) => frame.value.nextCursors
 
     const first = await panel.handleRpc('panel.poll', { sessionId: 'session-root' })
@@ -664,7 +731,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel: panelA } = apply(mockA.ctx, {})
+    const panelA = startPanel(mockA, {})
     panelA.store.upsert({
       runId: 'bash:huge-command',
       kind: 'bash',
@@ -703,7 +770,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel: panelB } = apply(mockB.ctx, { maxFrameBytes: 4096 })
+    const panelB = startPanel(mockB, { maxFrameBytes: 4096 })
     const exec = { callId: 'call-tiny-frame', name: 'bash', arguments: { command: 'noisy' }, agent: rootAgent }
     await mockB.runToolsExecute(exec, async () => {
       const spec = shell.resolve({ command: 'noisy', dshEnv: { DSH_SESSION_ID: 'session-root' } })
@@ -758,7 +825,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel: panelC } = apply(mockC.ctx, {})
+    const panelC = startPanel(mockC, {})
     const frameM2 = await panelC.handleRpc('panel.poll', { sessionId: 'session-root' })
     const withOutput = frameM2.value.runs.filter((run) => (run.output?.job?.chunks?.length ?? 0) > 0)
     check(frameM2.value.runs.length === 32, 'M2: frame keeps 32 running runs', frameM2.value.runs.length)
@@ -774,7 +841,7 @@ async function main() {
         subagents: { listDescendants: async () => [] },
       },
     })
-    const { panel: panelD } = apply(mockD.ctx, { maxFrameBytes: 1024 })
+    const panelD = startPanel(mockD, { maxFrameBytes: 1024 })
     for (const id of ['a', 'b']) {
       panelD.store.upsert({
         runId: `bash:tiny-${id}`,
