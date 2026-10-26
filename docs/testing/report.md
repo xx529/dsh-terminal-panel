@@ -256,3 +256,14 @@ A14 网格换行目视效果、A15 三态卡片/计时器视觉、A16「收起�
 
 A23 行头/组头真实点击与复用 React 复用下的展开状态、A24 视觉上确认无倒计时、A25 明暗主题色板观感、A26 真实 resize 下列数/等宽/无横向滚动、A27 真机树外 owner（队友/subagent）terminal 可达性、A28 真机 Network 的 diagnostics 全字段；另既有 19 项 Unverified（`integration-report.md` §10）不变。
 
+## 14. 已知技术债（Known tech debt，T49 登记）
+
+> 目的：把「升版残留双轨」从复盘口头结论固化为可追踪债务（来源：`docs/retro/2026-10-26-version-residuals-and-scope-assumptions.md` P2）。
+> 处置原则：**不阻塞发布**（无功能缺陷/无渲染副作用），在 v10 清理死代码时同步改测试断言；改动前先看本节。
+
+| 编号 | 债务 | 位置（文件:行） | 风险 | 计划 | 验证方式 |
+|---|---|---|---|---|---|
+| 债-1 | v7 死样式/词典 `.tp-countdown*` / `.tp-progress*` / `collapse.in` 仍存在，但 v9 起**已完成行不再渲染**（样式/词典暂留仅为兼容旧断言） | `lib/client.js:378`（`.tp-countdown`）、`:381`（`.tp-progress`）、`:95`/`:184`（locale `collapse.in`）；**阻塞点** `tests/client/v7.test.mjs:153` 仍断言 `.tp-countdown{…min-width:74px}` | **低**：不会渲染（A24 已证），但 `grep` 易误判为活代码；删除时若不同步改 v7 断言会误红 | **v10** 删除死代码时同步把 `v7.test.mjs:153` 断言标记 `deprecated` 或移除；或保留 CSS 并注释 `deprecated since v9` | `tests/client/v9.test.mjs:80`（A24：已完成行不渲染 `collapse.in`/`tp-countdown`/`tp-progress`/`column.collapse`）+ `npm run verify`（当前 338/338 + 91/91，exit 0） |
+| 债-2 | `column.collapse` 状态机在 v8/v9 后**只服务执行网格卡片**（linger/卡片展开），与已完成行（`group.expandedIds` 纯布尔）解耦；两套展开状态并存 | `lib/client.js:945-946`（`createColumnState` arm）、`:1121-1134`（`mergeRun` 终态/恢复输出时的 collapse 合并）；已完成行 `:2609+ CompletedRow` 不读 `column.collapse` | **低**：无功能缺陷；理解/维护成本（新增开发者易误用 collapse 到已完成行） | **v10** 评估仅保留 linger 状态（或把 collapse 改名为 `cardCollapse`），删除已完成区相关 collapse 分支与 `expandCollapse/unpinCollapse` 的死调用路径 | `tests/client/v9.test.mjs` A23/A24 + `tests/client/collapse.test.mjs` + `npm run verify` |
+| 债-3（信息项，不单独立项） | 死代码的「旧测试锁定」模式本身：v7 断言把样式当契约，导致 v9 无法直接删；后续出现「替换关系」时按同一模式登记 | `tests/client/v7.test.mjs:153`、contract §0 v9「替换关系」 | 低（流程已由 AGENTS §8.1 + 复盘 P1 约束） | 随债-1/债-2 一起清理；每次升版列「替换/作废清单」 | 复盘 P1 载体检查（`grep "替换/作废" contract`）+ verify |
+
