@@ -38,11 +38,11 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 │   │   ├── status.mjs / tree.mjs / classify.mjs
 │   │   └── capture-bash.mjs / capture-jobs.mjs / capture-terminals.mjs
 │   └── client.js                 # Client 半端单文件 classic script（≈2,795 行；无独立 lib/client 目录）
-├── tests/                        # 19 个 *.test.mjs（tests/{client,host,e2e}/ + helpers/）
+├── tests/                        # 20 个 *.test.mjs（tests/{client,host,e2e}/ + helpers/）
 │   ├── client/                   #   纯函数 + 装配 + 静态样式检查
 │   ├── host/                     #   纯模块 + panel 集成
 │   └── e2e/smoke.mjs             #   端到端冒烟脚本（可独立运行）
-├── scripts/smoke-host.mjs        # Host mock ctx 冒烟（87 checks）
+├── scripts/smoke-host.mjs        # Host mock ctx 冒烟（91 checks）
 ├── docs/
 │   ├── design/ui-spec.md         # v4 设计规格（验收基线）
 │   ├── architecture/contract.md  # **唯一契约来源（v6）**
@@ -57,14 +57,14 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 
 ```bash
 npm run check      # node --check lib/index.js && node --check lib/client.js
-npm test           # node --test "tests/**/*.test.mjs" → 250 tests / 250 pass
-npm run smoke      # node scripts/smoke-host.mjs → 87/87 checks，exit 0
+npm test           # node --test "tests/**/*.test.mjs" → 255 tests / 255 pass
+npm run smoke      # node scripts/smoke-host.mjs → 91/91 checks，exit 0
 npm run verify     # check → test → smoke（当前 exit 0）
 node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ```
 
 **门禁：任何改动后必须跑 `npm run verify` 并通过（exit 0）。** 不依赖网络、不装依赖。
-当前基线：**250 tests / 250 pass / 0 fail / 0 skip / 0 todo；smoke 87/87；`npm run verify` exit 0**。
+当前基线：**255 tests / 255 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
 
 ## 4. 硬约束（摘自 contract v6，违反即缺陷）
 
@@ -104,7 +104,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 | [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v6）**：集成/传输/数据模型/状态机/预算/冻结表/裁决 |
 | [`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md) | scout T1 平台取证（FACT/INF/ASSUMPTION 事实来源） |
 | [`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md) | 验收矩阵（ui-spec ↔ 用例） |
-| [`docs/testing/report.md`](docs/testing/report.md) | 测试报告（T5 基线 236，当前累计 250） |
+| [`docs/testing/report.md`](docs/testing/report.md) | 测试报告（T5 基线 236，当前累计 255） |
 | [`docs/testing/integration-report.md`](docs/testing/integration-report.md) | T6 集成审计（H1/M2 已修，§10 真机清单） |
 | [`docs/retro/2026-10-26-bash-live-source.md`](docs/retro/2026-10-26-bash-live-source.md) | T4 触发复盘（closed） |
 | [`docs/install.md`](docs/install.md) | 安装/生效/验证/回滚（证据版） |
@@ -121,7 +121,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 ## 9. 验收基线
 
-- **代码侧已交付**：`250 tests / 250 pass / 0 fail / 0 skip / 0 todo`；`smoke 87/87`；`npm run verify` exit 0（2026-10-26，HEAD 以 `git log` 为准）。
+- **代码侧已交付**：`255 tests / 255 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（2026-10-26，HEAD 以 `git log` 为准）。
 - **真机待验收**：ui-spec 有 **19 项 Unverified**（视觉/像素、指针/键盘交互、宿主集成行为、平台限制项、网络/权限异常、性能等），清单与步骤见 `docs/testing/integration-report.md` §10 与 `docs/install.md` §3。
 - **不得宣称已真机验收**，除非逐项执行并留下证据（截图/Console/Network 记录）。
 - 发布前最小集合（集成报告 §9）：H1/M2 已修；真机 19 项 + `docs/retro` P2 已关闭；新增回归不得让 `npm run verify` 回退。

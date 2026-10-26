@@ -5,13 +5,13 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 代码侧已交付（2026-10-26）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：`250` 条单测、`87/87` mock 冒烟、`npm run verify` exit 0。
+**状态：v0.1.0 代码侧已交付（2026-10-26）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：`255` 条单测、`91/91` mock 冒烟、`npm run verify` exit 0。
 
 | 门 | 结果 | 命令 |
 |---|---|---|
 | 语法自检 | 通过 | `npm run check` |
-| 单测 | **250 tests / 250 pass / 0 fail / 0 skip / 0 todo**（19 个 `*.test.mjs`，`node:test`，零依赖） | `npm test` |
-| Host mock 冒烟 | **PASS — 87/87 checks passed**，exit 0 | `npm run smoke` |
+| 单测 | **255 tests / 255 pass / 0 fail / 0 skip / 0 todo**（20 个 `*.test.mjs`，`node:test`，零依赖） | `npm test` |
+| Host mock 冒烟 | **PASS — 91/91 checks passed**，exit 0 | `npm run smoke` |
 | 一键全验 | check → test → smoke，**exit 0** | `npm run verify` |
 | 契约 | **v5**（v3 冻结表 + H1/M2 实现对齐） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
 
@@ -21,8 +21,8 @@
 
 ```bash
 npm run check     # node --check lib/index.js && node --check lib/client.js
-npm test          # node --test "tests/**/*.test.mjs"（250 用例）
-npm run smoke     # node scripts/smoke-host.mjs（87 checks，exit 0）
+npm test          # node --test "tests/**/*.test.mjs"（255 用例）
+npm run smoke     # node scripts/smoke-host.mjs（91 checks，exit 0）
 # 或一次跑完：
 npm run verify
 ```
@@ -36,7 +36,7 @@ npm run verify
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
 - 架构与接口契约（v5）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
-- 测试报告（T5 基线 236，当前累计 250）：[`docs/testing/report.md`](docs/testing/report.md)
+- 测试报告（T5 基线 236，当前累计 255）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
@@ -94,8 +94,8 @@ npm run verify
 │   ├── host/*.mjs               # [backend] 采集器 + 纯逻辑（12 个模块，node:test 直接 import）
 │   ├── client.js                # [frontend] Client 半端（单文件 classic script，≈2,795 行）
 │   └── client/**                # [frontend] 可选纯函数（不 import React）
-├── scripts/smoke-host.mjs       # [backend] mock ctx 冒烟（87 checks）
-└── tests/                       # [tester] 19 个 *.test.mjs（host / client / e2e）+ helpers
+├── scripts/smoke-host.mjs       # [backend] mock ctx 冒烟（91 checks）
+└── tests/                       # [tester] 20 个 *.test.mjs（host / client / e2e）+ helpers
 ```
 
 ## 许可
