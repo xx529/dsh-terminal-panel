@@ -26,7 +26,9 @@
   ],
   "scripts": {
     "check": "node --check lib/index.js && node --check lib/client.js",
-    "test": "node --test tests/"
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "smoke": "node scripts/smoke-host.mjs",
+    "verify": "node --check lib/index.js && node --check lib/client.js && node --test \"tests/**/*.test.mjs\" && node scripts/smoke-host.mjs"
   },
   "dsh": {
     "bundle": {
