@@ -37,6 +37,7 @@ BRANCH="main"
 PROFILE="desktop"
 PLUGIN_PKG="dsh-terminal-panel"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+TIMEOUT_SECS=120
 
 SKIP_TESTS=0
 DRY_RUN=0
@@ -50,6 +51,7 @@ readonly EXIT_USAGE=2
 readonly EXIT_PREFLIGHT=3
 readonly EXIT_PUSH=4
 readonly EXIT_INSTALL=5
+readonly EXIT_TIMEOUT=6
 
 # --- 日志（tty 才上色） ----------------------------------------------------
 if [[ -t 1 ]]; then
@@ -84,6 +86,54 @@ run() {
   "$@"
 }
 
+# 超时命令检测：GNU timeout > gtimeout(coreutils) > perl alarm > 无保护
+_timeout_cmd() { # _timeout_cmd <seconds> <command...>：直接执行，超时以 124 返回
+  local secs="${1:?}"; shift
+  if have_cmd timeout; then
+    timeout "$secs" "$@"
+  elif have_cmd gtimeout; then
+    gtimeout "$secs" "$@"
+  elif have_cmd perl; then
+    perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
+  else
+    "$@"
+  fi
+}
+
+# 在超时保护下执行命令（dry-run 只打印）；超时统一返回 124
+run_with_timeout() { # run_with_timeout <seconds> <label> <command...>
+  local secs="${1:?run_with_timeout: seconds required}" label="${2:?run_with_timeout: label required}"
+  shift 2
+  if (( DRY_RUN )); then
+    log_plan "timeout ${secs}s: $*"
+    return 0
+  fi
+  local rc=0
+  _timeout_cmd "$secs" "$@" || rc=$?
+  if [[ $rc -eq 124 || $rc -eq 142 ]]; then
+    log_warn "${label} 超时（${secs}s），已终止（如需放宽：--timeout <秒>）"
+    return 124
+  fi
+  return $rc
+}
+
+# 同 run_with_timeout，但在指定目录执行
+run_with_timeout_in() { # run_with_timeout_in <dir> <seconds> <label> <command...>
+  local dir="${1:?run_with_timeout_in: dir required}" secs="${2:?}" label="${3:?}"
+  shift 3
+  if (( DRY_RUN )); then
+    log_plan "(cd ${dir} && timeout ${secs}s: $*)"
+    return 0
+  fi
+  local rc=0
+  ( cd "$dir" && _timeout_cmd "$secs" "$@" ) || rc=$?
+  if [[ $rc -eq 124 || $rc -eq 142 ]]; then
+    log_warn "${label} 超时（${secs}s），已终止（如需放宽：--timeout <秒>）"
+    return 124
+  fi
+  return $rc
+}
+
 usage() {
   cat <<'EOF'
 dsh-terminal-panel — 一键发布 + 安装（publish & install）
@@ -95,6 +145,7 @@ dsh-terminal-panel — 一键发布 + 安装（publish & install）
   --repo <url>      推送到哪个远端仓库（默认 https://github.com/xx529/dsh-terminal-panel.git）
   --branch <name>   要推送的分支（默认 main；当前分支不是它时直接报错，脚本不会自动改分支名）
   --profile <name>  安装到哪个 DSH profile（默认 desktop，即 ~/.dsh/profiles/desktop）
+  --timeout <秒>    pnpm / dsh plugin 调用的超时秒数（默认 120，范围 10-3600；超时 exit 6）
   --skip-tests      跳过 `npm run verify`（收窄门禁，仅限已确认 CI 跑过时使用）
   --dry-run         只打印将执行的命令与变更摘要：不推送、不安装、不改任何文件
   --yes             允许走「兼容回退路径」（无 dsh CLI / CLI 安装失败时的 profile 手工改写）
@@ -123,11 +174,15 @@ dsh-terminal-panel — 一键发布 + 安装（publish & install）
     （未真机实测）；可用时优先用官方 plugin_manager 的 install_bundle，或本脚本探测到的
     `dsh plugin --profile <name> ...` 转发路径。
   * 安装后需要重启 DSH 桌面版（替换已安装代码不免重启）+ 刷新页面。
+  * pnpm / dsh plugin 调用有超时保护（默认 120s，可用 --timeout 放宽；超时 exit 6）。
+    本机无 GNU timeout 时用 perl alarm 终止子进程，shell 可能打印一行
+    「Alarm clock: 14」——属正常现象，不是脚本错误。
   * 不 sudo、不改全局配置、不 rm -rf。
 
 退出码:
   0 成功   2 用法错误   3 前置检查失败（脏树/分支/远端）
   4 推送失败（含非 fast-forward）   5 安装/回滚失败
+  6 安装/回滚超时（pnpm / dsh plugin 超过 --timeout 秒；可用 --timeout 覆盖）
 EOF
 }
 
@@ -140,6 +195,8 @@ while (( $# )); do
     --branch=*)   BRANCH="${1#--branch=}"; shift ;;
     --profile)    [[ $# -ge 2 ]] || die "--profile 需要一个值" "$EXIT_USAGE"; PROFILE="$2"; shift 2 ;;
     --profile=*)  PROFILE="${1#--profile=}"; shift ;;
+    --timeout)    [[ $# -ge 2 ]] || die "--timeout 需要一个值（秒）" "$EXIT_USAGE"; TIMEOUT_SECS="$2"; shift 2 ;;
+    --timeout=*)  TIMEOUT_SECS="${1#--timeout=}"; shift ;;
     --skip-tests) SKIP_TESTS=1; shift ;;
     --dry-run)    DRY_RUN=1; shift ;;
     --yes)        ASSUME_YES=1; shift ;;
@@ -155,6 +212,8 @@ done
 [[ -n "$REPO_URL" ]] || die "--repo 不能为空" "$EXIT_USAGE"
 [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || die "--branch 非法: $BRANCH" "$EXIT_USAGE"
 [[ "$PROFILE" =~ ^[A-Za-z0-9._-]+$ ]] || die "--profile 非法: $PROFILE" "$EXIT_USAGE"
+[[ "$TIMEOUT_SECS" =~ ^[0-9]+$ ]] || die "--timeout 必须是整数秒: $TIMEOUT_SECS" "$EXIT_USAGE"
+(( TIMEOUT_SECS >= 10 && TIMEOUT_SECS <= 3600 )) || die "--timeout 必须在 10..3600 秒之间: $TIMEOUT_SECS" "$EXIT_USAGE"
 [[ "$REPO_ROOT" == /* ]] || die "REPO_ROOT 必须是绝对路径: $REPO_ROOT" "$EXIT_USAGE"
 
 if (( DO_ROLLBACK )); then
@@ -291,28 +350,42 @@ pnpm_install_profile() { # pnpm_install_profile <profile-dir> <runner> <allow-ne
       log_plan "dsh plugin --profile $PROFILE install --offline   # cwd=$dir"
       (( allow_net )) && log_plan "（offline 失败时回退）dsh plugin --profile $PROFILE install"
     else
-      log_plan "(cd $dir && pnpm install --offline)"
+      log_plan "(cd $dir && timeout ${TIMEOUT_SECS}s: pnpm install --offline)"
       (( allow_net )) && log_plan "（offline 失败时回退）(cd $dir && pnpm install)"
     fi
     return 0
   fi
 
-  local ok=0
+  local rc=0
   if [[ "$runner" == "dsh" ]]; then
-    if dsh plugin --profile "$PROFILE" install --offline; then ok=1; fi
+    run_with_timeout "$TIMEOUT_SECS" "offline 安装（dsh plugin install）" \
+      dsh plugin --profile "$PROFILE" install --offline || rc=$?
   else
-    if ( cd "$dir" && pnpm install --offline ); then ok=1; fi
+    run_with_timeout_in "$dir" "$TIMEOUT_SECS" "offline 安装（pnpm install）" \
+      pnpm install --offline || rc=$?
   fi
-  (( ok )) && return 0
+  if (( rc == 0 )); then return 0; fi
+  if (( rc == 124 )); then
+    die "安装超时（${TIMEOUT_SECS}s）" "$EXIT_TIMEOUT" \
+      "放宽超时重试：--timeout 300；或先用 plugin_manager 的 install_bundle"
+  fi
 
   (( allow_net )) || die "offline 安装失败（profile=${PROFILE}）" "$EXIT_INSTALL" \
     "确认 registry 可达后重跑；或加 --yes 允许回退联网；或改用 plugin_manager install_bundle"
   log_warn "offline 安装失败，回退到联网 pnpm install（可能需要网络与 registry 访问）"
+  rc=0
   if [[ "$runner" == "dsh" ]]; then
-    dsh plugin --profile "$PROFILE" install
+    run_with_timeout "$TIMEOUT_SECS" "联网安装（dsh plugin install）" \
+      dsh plugin --profile "$PROFILE" install || rc=$?
   else
-    ( cd "$dir" && pnpm install )
+    run_with_timeout_in "$dir" "$TIMEOUT_SECS" "联网安装（pnpm install）" \
+      pnpm install || rc=$?
   fi
+  if (( rc == 124 )); then
+    die "联网安装超时（${TIMEOUT_SECS}s）" "$EXIT_TIMEOUT" \
+      "放宽超时重试：--timeout 300；确认网络/registry 后重试"
+  fi
+  return $rc
 }
 
 # --- 阶段 A：推送 ----------------------------------------------------------
@@ -505,10 +578,17 @@ install_stage() {
   if [[ "$runner" == "dsh" ]]; then
     log_inst "正规路径：dsh plugin --profile $PROFILE add ${link_spec}（dsh CLI 转发 pnpm）"
     if (( DRY_RUN )); then
-      log_plan "dsh plugin --profile $PROFILE add $link_spec"
+      log_plan "timeout ${TIMEOUT_SECS}s: dsh plugin --profile $PROFILE add $link_spec"
       log_plan "node 补丁 package.json: dependencies.$PLUGIN_PKG=\"$link_spec\" ; dsh.profile.bundles += ${PLUGIN_PKG}（$bundle_count → $((bundle_count + 1)) 项）"
     else
-      if ! dsh plugin --profile "$PROFILE" add "$link_spec"; then
+      local add_rc=0
+      run_with_timeout "$TIMEOUT_SECS" "dsh plugin add" \
+        dsh plugin --profile "$PROFILE" add "$link_spec" || add_rc=$?
+      if (( add_rc == 124 )); then
+        die "dsh plugin add 超时（${TIMEOUT_SECS}s）" "$EXIT_TIMEOUT" \
+          "package.json 可能已被 pnpm 部分写入：先 --dry-run 只读核对；可 --timeout 300 重试或 --rollback 恢复"
+      fi
+      if (( add_rc != 0 )); then
         (( ASSUME_YES )) || die "dsh plugin add 失败" "$EXIT_INSTALL" \
           "确认 profile 可写后重试；或加 --yes 允许回退到手工写 package.json + pnpm install"
         log_warn "dsh plugin add 失败，回退到手工路径（写 package.json + pnpm install）"
