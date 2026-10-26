@@ -1,7 +1,7 @@
 # AGENTS.md · dsh-terminal-panel 项目指引
 
 > 给未来会话 / 其他 agent 的项目级指引。**先读本文件，再读契约**；一切硬性接口以
-> [`docs/architecture/contract.md`](docs/architecture/contract.md)（**v11**）为唯一契约来源。
+> [`docs/architecture/contract.md`](docs/architecture/contract.md)（**v12**）为唯一契约来源。
 > 本文件只描述仓库现状，不发明未实现的能力。仓库：<https://github.com/xx529/dsh-terminal-panel>
 
 ## 1. 项目定位
@@ -9,7 +9,7 @@
 DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` version `0.1.0`，`private`）：
 在会话头部 View 标签栏新增「终端」tab（`conversation.view`，`id: terminal-panel`，`order: 30`），把
 **当前会话 + 子代理 + Agent Team 队友** 的 bash 前台执行、后台任务（`ctx.jobs`）、持久终端（`ctx.terminals`）
-输出聚合成**只读**的卡片网格面板（v11：P0 会话隔离/统一卡宽 grid/2px 边框/同步 ghost；详见 §4）。
+输出聚合成**只读**的卡片网格面板（v12：标题优先 description/角色名 chip/P0 会话隔离/统一卡宽 grid；详见 §4）。
 
 - 代码侧已交付（见 §9）；**尚未做真机安装与视觉验收**。
 - 双端形态：Host 半端 = ESM Cordis 插件；Client 半端 = 单文件 classic script（`window.__ModuleLoader__.load`）。
@@ -45,8 +45,8 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 │   └── e2e/smoke.mjs             #   端到端冒烟脚本（可独立运行）
 ├── scripts/smoke-host.mjs        # Host mock ctx 冒烟（91 checks）
 ├── docs/
-│   ├── design/ui-spec.md         # v9 设计规格（验收基线）
-│   ├── architecture/contract.md  # **唯一契约来源（v11）**
+│   ├── design/ui-spec.md         # v10 设计规格（验收基线）
+│   ├── architecture/contract.md  # **唯一契约来源（v12）**
 │   ├── research/dsh-plugin-apis.md # scout T1 平台取证（事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/{acceptance-matrix,report,integration-report}.md
@@ -59,16 +59,16 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 
 ```bash
 npm run check      # node --check lib/index.js && node --check lib/client.js
-npm test           # node --test "tests/**/*.test.mjs" → 364 tests / 364 pass
+npm test           # node --test "tests/**/*.test.mjs" → 365 tests / 365 pass
 npm run smoke      # node scripts/smoke-host.mjs → 91/91 checks，exit 0
 npm run verify     # check → test → smoke（当前 exit 0）
 node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ```
 
 **门禁：任何改动后必须跑 `npm run verify` 并通过（exit 0）。** 不依赖网络、不装依赖。
-当前基线：**364 tests / 364 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T60 最终报告）。
+当前基线：**365 tests / 365 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（以 tester T69 最终报告为准）。
 
-## 4. 硬约束（摘自 contract v11，违反即缺陷）
+## 4. 硬约束（摘自 contract v12，违反即缺陷）
 
 1. **唯一集成点**：客户端 Slot `conversation.view`（`name: 'conversation.view'`、`id: 'terminal-panel'`、`order: 30`、`locale` 词典 + `label` 函数）。禁止自绘 tab。
 2. **Client 半端形态**：`lib/client.js` 是**单文件 classic script**：`window.__ModuleLoader__.load({ id: 'dsh-terminal-panel', factory(require) {…} })`；**无 JSX/TS/import**；只允许 `require('react')`（平台模块表）；样式自己注入 `<style data-plugin-css>` 并在卸载时移除。禁止 `host.call` / `styles.insert`（那是动态 Cordis 包的能力）。
@@ -101,6 +101,8 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 29. **hover/focus 只视觉加粗（v10）**：`border-color`→92% + `box-shadow: inset 0 0 0 1px`，**不得改 `border-width`/`width`/`height`/`padding`**（FLIP 测量不抖）。
 30. **同步 ghost + FLIP（v10）**：退场卡**渲染期同步派生**并按原 `orderIndex` 插回槽位（非 passive effect 晚一帧）；180ms 淡出后移除，其余卡 FLIP 200ms（仅 transform/opacity）；测量集合含 ghost；`layoutSignatureRef=activeKey|exitingKey`（不含 gridWidth）在 `useLayoutEffect` 比较；同帧移除 >2 张跳过 fade；reduced-motion 瞬时（contract §6.10/§12.12 R16）。
 31. **会话隔离（v11，P0）**：**任何帧/存储操作必须 session-scoped，禁止全局选择**——帧选择/增量消费/removed/prune/resync/客户端游标一律传 `sessionIds`（会话树 root+子代理+队友）；`drainRemoved(sessionIds)` 按 owner 取且保留其它会话；`prune` 每会话配额、异会话全量跳过；`resync` 只重置本会话；客户端异会话帧整帧丢弃 + `mergePoll` 不跨会话改写 + 缓存 key 含 `v11-1` 且 sanitize + 切会话清瞬时态（contract §14/§6.11）。
+32. **标题优先级（v12）**：卡片/已完成行标题 = `Run.description`（bash/job 工具描述，单行 ≤200 字符）→ 命令第一条非空行；**完整命令仍在输入块与 `title` 悬浮**（悬浮=description+完整 command）；禁止把完整命令塞进标题行。
+33. **角色名 chip（v12）**：`agent.roleName` 用于 chip 主标签——root=`lead`、teammate/subagent=会话树 displayName、unknown=`—`；`agent.name`（会话标题）仍用于会话 chip；搜索覆盖 `description`+`roleName`（contract §5.1/§12.2/§12.3）。
 
 ## 5. 已知限制（已裁决，不要当 bug 修）
 
@@ -128,8 +130,8 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v9 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A38） |
-| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v11）**：集成/传输/数据模型/状态机/预算/冻结表/会话隔离/裁决 |
+| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v10 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A41） |
+| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v12）**：集成/传输/数据模型/状态机/预算/冻结表/会话隔离/展示字段/裁决 |
 | [`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md) | scout T1 平台取证（FACT/INF/ASSUMPTION 事实来源） |
 | [`docs/research/terminal-panel-followup-2026-10-26.md`](docs/research/terminal-panel-followup-2026-10-26.md) | v7 真机缺陷取证（terminal 可见性/agent 解析/composer 方案；若文件存在） |
 | [`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md) | 验收矩阵（ui-spec ↔ 用例） |
@@ -143,7 +145,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 - 分支：`main`（发布前不要自行改分支名/强推）。
 - 提交信息类型：`feat:` / `fix:` / `test:` / `docs:` / `chore:`（必要时 `feat(deploy):` 这类 scope）。
 - **改动前先读契约**（`docs/architecture/contract.md`，尤其 §4/§11/§12）；实现与契约冲突先停下确认，不要静默改行为。
-- **契约变更**：必须同步 §0「版本与变更记录」（当前 v11），并说明触发方（Lead 裁决/审计/实现偏差）。
+- **契约变更**：必须同步 §0「版本与变更记录」（当前 v12），并说明触发方（Lead 裁决/审计/实现偏差）。
 - **测试不得「顺手改绿」**：禁止为了让用例通过而放宽断言或改 `tests/**` 的期望值；实现错就修实现，用例错需先说明理由并获批准。
 - 冻结表改动需 maintainer 批准；低风险文案/像素级差异见 contract §12.10（L1–L5）。
 - 文档写作用域各归其主（architect=契约/docs；backend=lib/host；frontend=lib/client.js；tester=tests/docs/testing；devops=deploy），改动不要越界。
@@ -159,8 +161,9 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 ## 9. 验收基线
 
-- **代码侧已交付**：`364 tests / 364 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（tester T60 最终报告，2026-10-26）。
-- **v11**：P0 会话隔离（帧/增量/removed/prune/resync/游标按会话树隔离）/ terminal owner 收紧（树外不展示）/ 客户端纵深防御——代码侧已修（T57/T58），真机双会话复验待做；ui-spec v9 新增 A34–A38（均含 manual/Unverified 项）。
+- **代码侧已交付**：`365 tests / 365 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（以 tester T69 最终报告为准，2026-10-26）。
+- **v12**：`Run.description?`（bash/job，单行 ≤200）/ `agent.roleName`（chip 主标签）/ 标题 description→命令首行 / 搜索覆盖 description+roleName——代码侧已修（T66/T67），真机复验待做；ui-spec v10 新增 A39–A41（均含 manual/Unverified 项）。
+- **v11**：P0 会话隔离（帧/增量/removed/prune/resync/游标按会话树隔离）/ terminal owner 收紧（树外不展示）/ 客户端纵深防御——代码侧已交付（T57/T58）。
 - **v10**：2px 状态边框 / 统一卡宽 CSS grid（auto-fill、单卡不拉伸）/ 同步 ghost+FLIP——代码侧已交付（T52）。
 - **v9**：已完成行独立展开（无倒计时）/ 按行铺满 / 状态色板 / 树外 terminal owner 升级 live / 诊断扩展——代码侧已交付（T43/T44）。
 - **v8**：展示层（网格换行 / Run 三态 linger / 会话缓存 / FLIP+fade / 首帧 loading）+ host 一致性补丁（resync / removed-runs 互斥 / revision 回退恢复）——代码侧已交付（T37/T41）。

@@ -367,3 +367,34 @@ A34 A/B 真机互不可见、A35 切回 A 数据完整、A36 迟到帧不闪、A
 - 契约：`docs/architecture/contract.md` §0 v11.1 + §6.7 已同步（`min(now+3s, finishedAt+3s)`、hover/focus 重计 3s；v7 collapse 明确为废弃不生效）；ui-spec v9 A15/A17 已同步 3s；本任务已更新 `acceptance-matrix.md` A15/A16/A17 口径。
 - 真机项：A15/A16/A17 的视觉/交互仍 Unverified（3s 倒计时观感、hover 暂停、收起按钮点击），与既有 19 项清单不变。
 
+## 18. v12 增量测试基线（T69，contract v12 / ui-spec v10 A39–A41）
+
+> 触发：真机反馈「标题看不出任务是什么、agent 只显示会话名」→ T66（host `Run.description`/`agent.roleName`）+ T67（client `runTitle`/chip/搜索）。
+> 基线：`365 tests / 91 smoke`（v11.1）→ 本任务 **382 tests / 382 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 18.1 新增用例（17 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/host/v12.test.mjs` | 9 | `classifyTool.description`（trim/空白折叠/单行；≤200 代码点、201 截断、emoji 代理对安全；空/非字符串缺省）；`serializeRun`（空/缺省不出字段、正常 trim、>200 截断 200 含 `…` + `metaTruncated`、UTF-8 安全）；采集范围（bash 采集、terminal/job 不误采）；`agent.roleName`（root=lead、subagent/teammate=displayName、`agent.name` 仍会话标题、role 保留、unknown/树外 `—` 源码兜底）；小 `maxFrameBytes` 长 description 不破帧且 Run 可见；v11 双会话隔离回归 |
+| `tests/client/v12.test.mjs` | 8 | 冻结表 53 键且 `runTitle`/`runTitleTooltip`/`agentDisplayName`/`agentName` **不导出**（Lead 已批准）；`runTitle` 源码级行为（description 优先/空白折叠/超长 `…`/回退 `firstCommandLine`/非对象 `''`/默认 120）；`runTitleTooltip` = description + 完整 command；卡头/已完成行/弹窗标题均走 `runTitle`、`title` 属性=tooltip（静态）；`mergePoll` description 透传/trim/兜底 200/空白不保留 + roleName 透传；`searchMatch`/`filterRuns` 命中 description + roleName；`AgentChip` 主标签 roleName→agent.name→`—`、次级角色文本、无新增尺寸类；v11.1 linger=3000 回归 |
+
+### 18.2 不导出 / 期望变更说明（Lead 已批准）
+
+- **`runTitle`/`runTitleTooltip` 保持内部函数、`__internals` 仍 53 键**（Lead 明确批准，不新增导出）。因此 A39 的验证方式为：
+  1. `mergePoll` 数据通路（description 透传/trim/≤200 兜底、roleName 透传）；
+  2. 源码级静态断言（函数体规则 + 三处渲染调用点 + `title` 属性拼接）；
+  3. 搜索用已导出的 `searchMatch`/`filterRuns` 做行为断言。
+- 本轮为**新增行为**，无旧期望被放宽/改写；v8–v11 用例全绿。
+- **`agent.roleName='—'` 的 unknown/树外分支当前不可经帧到达**（v11 会话隔离会把树外 Run 过滤，会话树角色只有 root/subagent/teammate/lead）——已用 `lib/host/panel.mjs` 源码级断言兜底分支，避免为不可达状态造桩。
+- `classifyTool` 对 terminal 也会返回 description，但 panel 仅对 bash 调 `noteToolCall`；terminal/job Run 不写 description（与契约「仅 bash/job」一致，测试按实际行为断言）。
+
+### 18.3 覆盖映射位置
+
+- ui-spec v10 A39–A41 ↔ 用例：`docs/testing/acceptance-matrix.md` **§17**。
+- 真机项（标题观感/tooltip 悬浮/chip 显示/搜索高亮）仍 Unverified；既有 19 项清单不变。
+
+### 18.4 未发现实现缺陷
+
+- Host/Client 行为与 contract v12 §12.1–§12.3 一致；冻结表 53 键、`LINGER_DELAY_MS=3000`、`COLLAPSE_DELAY_MS=10000`、v11 隔离均未回退。
+

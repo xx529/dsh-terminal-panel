@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v11）
+# dsh-terminal-panel · 架构与契约（v12）
 
-> 状态：**v11（v10 + P0 会话隔离）** — 真机/审计发现**跨会话数据泄漏**（单实例单 store 却按全局选择帧/增量/removed/prune/resync），Lead 裁决 v10→v11（协议/安全语义变更）；T57 Host / T58 Client 实现。v11 新增：**所有帧与 store 操作必须按 `sessionIds`（会话树：root+子代理+队友）隔离**（§14）；`terminalScopes` 收紧为**只等于会话树**（v9「树外 owner 升级 live」**作废**，R17）；diagnostics 增 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`；客户端纵深防御（异会话帧整帧丢弃、`mergePoll` 过滤、`SESSION_CACHE_VERSION='v11-1'`+sanitize、切会话清瞬时态）；§11.1.1 冻结表更新、§11.2 **保持 53 键**；§12.12 R17。 **v11.1（微）**：linger 滞留 **10s→3s**（`LINGER_DELAY_MS=3000`；v7 的 `COLLAPSE_DELAY_MS=10000` 属已废弃路径，不受影响）。
+> 状态：**v11（v10 + P0 会话隔离）** — 真机/审计发现**跨会话数据泄漏**（单实例单 store 却按全局选择帧/增量/removed/prune/resync），Lead 裁决 v10→v11（协议/安全语义变更）；T57 Host / T58 Client 实现。v11 新增：**所有帧与 store 操作必须按 `sessionIds`（会话树：root+子代理+队友）隔离**（§14）；`terminalScopes` 收紧为**只等于会话树**（v9「树外 owner 升级 live」**作废**，R17）；diagnostics 增 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`；客户端纵深防御（异会话帧整帧丢弃、`mergePoll` 过滤、`SESSION_CACHE_VERSION='v11-1'`+sanitize、切会话清瞬时态）；§11.1.1 冻结表更新、§11.2 **保持 53 键**；§12.12 R17。 **v11.1（微）**：linger 滞留 **10s→3s**（`LINGER_DELAY_MS=3000`；v7 的 `COLLAPSE_DELAY_MS=10000` 属已废弃路径，不受影响）。 **v12（additive 展示字段）**：`Run.description?`（bash/job，来自 `exec.arguments.description`，单行 ≤200 字符）与 `agent.roleName`（根=lead / 队友·子代理=displayName / 未知=`—`）；UI 标题优先 description、chip 主标签用 roleName；§11.2 **保持 53 键**；ui-spec v10（A39–A41）。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -40,6 +40,7 @@
 | v10 | 2026-10-26 | **视觉/结构增量（替换关系，纯客户端）**：`.tp-col`/`.tp-row` 状态边框**生效 2px**（running warn 65% / linger·completed success 60% / failed error 65%；hover/focus 用 `inset box-shadow` 视觉加粗、**不改盒尺寸**）；执行区 **CSS grid `repeat(auto-fill, minmax(min(100%, var(--tp-card-w,352px)), 1fr))` + gap:12px**（**禁 auto-fit**；所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一列宽 280–640 会话级持久化，不再支持每卡独立宽；容器 <716px 单列单卡占满为已知边界）；重排动效替换为**渲染期同步派生 ghost + 按原 orderIndex 插回槽位**，180ms 淡出后其余卡 FLIP 200ms；signature=`activeKey\|exitingKey`（不含 gridWidth），`useLayoutEffect` 比较 arm；同帧移除 >2 张跳过 fade；reduced-motion 瞬时；§11.2 **保持 53 键**；§12.12 R15/R16；ui-spec 升 v8（A29–A33）。 |
 | v11 | 2026-10-26 | **P0 会话隔离（协议/安全语义变更）**：单实例单 store 下，**poll 帧/增量消费/removed/prune/resync 全部按 `sessionIds`（本会话树）隔离**（`frameSelection({sessionIds})`/`takeEntries({sessionIds})`/`drainRemoved(sessionIds)`/`prune(now,{protect,sessionIds})`/`resync({sessionIds})`/`mergeClientCursors(cursors,sessionIds)`）；`removed` 改为 `Map<runId,ownerSessionId>` 按会话 drain；`terminalScopes` 收紧为**只等于会话树**（**v9「树外 owner 升级 live」作废**；树外 owner 不展示/不解析，计 `droppedForeignRuns`；`tests/host/v9-owner.test.mjs` 3 条 A27 已按 v11 改写，Lead 批准，见 `docs/testing/report.md` §16.2）；diagnostics 增 5 字段；客户端异会话帧整帧丢弃 + `mergePoll` 过滤 + `SESSION_CACHE_VERSION="v11-1"` + sanitize + 切会话清瞬时态；§11.1.1 更新签名、§11.2 保持 53 键；§12.12 R17；ui-spec 升 v9（A34–A38）。 |
 | v11.1 | 2026-10-26 | **（微）linger 滞留 10s→3s**（Lead 裁决/用户需求，纯客户端展示层）：`lib/client.js` `LINGER_DELAY_MS=3000`；§6.7 三态时序（`min(now+3s, finishedAt+3s)`、hover/focus 恢复重新计 3s）、§11.2 `LINGER_DELAY_MS`/`resumeLinger`、§12.12 R10 同步；**v7「10s 后收起」`COLLAPSE_DELAY_MS=10000` 属已废弃历史路径，保留且不生效**。ui-spec v9 条目 A15–A17 同步 3s。 |
+| v12 | 2026-10-26 | **展示字段增量（additive；触发方=真机反馈/Lead 裁决）**：新增 `Run.description?`（仅 bash/job；来源 `tools/execute` 的 `exec.arguments.description`，**trim+空白折叠+单行+≤200 字符（代码点，UTF-8 安全）**，空/非字符串→缺省；计入 Tier2 帧体积，超长走 meta 截断并置 `metaTruncated`）与 `Run.agent.roleName`（根会话=`lead`、teammate/subagent=会话树 displayName、unknown=`—`；`agent.name`/`agent.role` 保留）；UI 卡片标题优先级 **description → 命令首行**（完整命令仍在输入块/`title` 悬浮），AgentChip 主标签=roleName、会话 chip 仍用 `agent.name`，搜索覆盖 description+roleName；§11.2 **保持 53 键**（`runTitle` 为内部函数未导出）；ui-spec 升 v10（A39–A41）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -149,7 +150,7 @@ waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只�
 1. **§4.2 语义 5 的适用面**：**agent 缺失不再触发 terminal Run 的 `removed`**（旧实现 `collectTerminalRuns` 的 noAgent 分支直接删 Run 是缺陷 ① 根因）。`removed` 只由：`terminal_close`/`terminal_kill`、会话结束、终态保留窗口过期（`store.prune`：`completedLimit`/`completedRetainMs`）产生。
 2. **新字段加入帧预算**：`inputs`/`notice`/`diagnostics`（以及 tier3 文本片段）计入 Tier2 整帧 JSON 体积；H1 保底规则不变（至少 1 条 Run 交付）。
 3. **历史 terminal 不可回读**（v7 纠偏）：`ctx.terminals` 是进程内、owner-对象身份注册表，owner 卸载即清理；`terminalController.attach` 需要 Remote invocation，Host 插件不可用。→ **验收口径：terminal 可见性只对「部署后新发生」的 `terminal_*` 判定，历史/已卸载 owner 的 pty 一律不算缺陷。**
-4. **显示名来源**（v7）：DSH `Agent` 无 `name` 字段（inspect `Agent { id }`），显示名按 §5.1 的四级链取；**rootAgent 缺失时也必须能列出队友**（用任一 live agent 调 `agentTeams.listMembers`，API 只要求 exact live member）。
+4. **显示名/角色名来源**（v7，v12 扩展）：DSH `Agent` 无 `name` 字段（inspect `Agent { id }`），`agent.name` 按 §5.1 四级链取（会话标题）；`agent.roleName`（v12）根会话固定 `lead`、teammate/subagent 用会话树 displayName、unknown=`—`；**rootAgent 缺失时也必须能列出队友**（用任一 live agent 调 `agentTeams.listMembers`，API 只要求 exact live member）。UI：chip 主标签=roleName，会话 chip 仍用 `name`。
 
 #### 7.4 §12 新裁决（详见 §12.11）
 
@@ -287,6 +288,28 @@ running ──终态──► linger（3s 滞留：倒计时 + 「收起」按�
 #### 10.4 §11.2 / §12.12
 - §11.2 **保持 53 键**（v10 无新增纯函数导出，纯 CSS/渲染内部改动）。
 - §12.12 新增 R15（auto-fill 统一列宽/单卡不拉伸）、R16（同步 ghost FLIP）。
+
+---
+
+### v12 展示字段增量（2026-10-26，Lead 裁决；T66 Host / T67 Client；additive）
+
+#### 12.1 `Run.description?`（仅 bash/job）
+- 来源：`tools/execute` 的 `exec.arguments.description`；采集时 **trim + 连续空白（含换行/制表）折叠为单空格 + 单行**。
+- 上限 **≤200 字符（按代码点，UTF-8/代理对安全）**；空串/非字符串 → **缺省**（不下发该字段）。
+- 序列化 `serializeRun` 再防御一次（`truncateRunDescription`，超长保留 199 + `…`），并置 `metaTruncated:true`；计入 Tier2 整帧 JSON 体积。
+- terminal 无该字段（不采集）。
+
+#### 12.2 `Run.agent.roleName`（v12）
+- 根会话（role=`lead`）→ **`lead`**；teammate/subagent → **会话树 `displayName`**（成员名/label）；unknown → **`—`**。
+- 既有 `agent.name`（会话标题）与 `agent.role` 保留：**roleName 用于 chip 主标签，name 仍用于会话 chip**。
+
+#### 12.3 UI 展示规则
+- 卡片/已完成行标题优先级：**`Run.description` → 命令第一条非空行**（内部 `runTitle(run, maxLen)`）；完整命令仍在**输入块**与 `title` 悬浮（`runTitleTooltip` = description + 完整 command）。
+- AgentChip 主标签 = `agent.roleName`（缺失回退 `agent.name`，再缺 `—`）；次级角色文本（当前会话/队友/子代理）保持。
+- 搜索覆盖 `description` + `roleName`（并入既有 command/输出/显示名匹配）。
+
+#### 12.4 冻结表
+- §11.2 **保持 53 键**；`runTitle`/`runTitleTooltip` 为内部函数，未导出。
 
 ---
 
@@ -664,7 +687,7 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 | 标记语义 | `truncated`（bash tee / job 通道）= 本帧没发完（可续读，**不丢数据**）；`lossy` = 数据已丢（不可恢复）。两者不可混用。**terminal 专用（v4）**：`TerminalDelta.truncated = page.truncated \|\| lineEnd < totalLines`，表示**该会话输出未被完整覆盖**（scrollback 裁剪，或窗口未及最旧行），**不是「本帧没发完 / 分页未取完」；client 不得据此循环翻页**（历史靠本地缓冲 + 手动上翻） |
 | `budgetMode?` | 可选字段 `'text' \| 'frame'`：`'text'`（缺省）= 本帧未触发整帧 JSON 兜底；`'frame'` = 本帧被 Tier2/3 按整帧 JSON 口径裁剪。**当前实现未发该字段（省略即 `'text'`），client 不得依赖；backend 可在 Tier2/3 裁剪时补发（v3 允许，向后兼容）** |
 | `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次）。**H1 重申**：⑤/⑥ 同样适用于「Tier3 截断 output 而非丢 Run」的情况——游标只前移到实际交付的字节，**绝不因截断而越过未交付字节**。**v5 实现约束**：服务端游标**只**由 `store.commitCursorsFromFrame(bounded.nextCursors)` 提交（不做 Tier1 计划游标的提前提交），这是部分交付不丢字节/不重复的必要条件 |
-| 元信息上限（H1） | `command`/`cwd`/`detail`/`title` 在序列化前各截断到 **≤ 4096 字节**（保留头部、不切半个码点），Run 置 `metaTruncated:true`；UI 单行省略 + tooltip 展示。目的：把单 Run 的 JSON 元信息控制在 Tier2 预算内（默认 65536 下即使超长 heredoc 命令也不会 livelock）。v3 冻结表不变（`metaTruncated` 为 Run 的新可选字段） |
+| 元信息上限（H1） | `command`/`cwd`/`detail`/`title` 在序列化前各截断到 **≤ 4096 字节**（保留头部、不切半个码点），Run 置 `metaTruncated:true`；UI 单行省略 + tooltip 展示。目的：把单 Run 的 JSON 元信息控制在 Tier2 预算内（默认 65536 下即使超长 heredoc 命令也不会 livelock）。v3 冻结表不变（`metaTruncated` 为 Run 的新可选字段）。**v12**：`description` 先按 ≤200 字符（代码点）规范化/截断，再计入 Tier2 整帧体积；超长同样置 `metaTruncated` |
 | 选择集一致（M2） | **预算调度与选择集必须是同一集合**：`planReads` 的候选集合、排序、`maxRuns` 截断方向必须与 `takeEntries` 完全一致（同一集合、同一排序、同一端截断），禁止一个取最旧 32、另一个取最新 32。修复归 backend（task-12），回归归 tester：40 个 running 时首帧 32 列中必须有输出（不得交给下一帧补齐） |
 | 饥饿保护 | Tier1 首条 Run 永远放行；Tier2 至少保留 1 条 Run（H1 保底）；`focusRunId` 在 `planReads` 中优先分配预算（放大弹窗/活动列不被饿死） |
 
@@ -717,8 +740,9 @@ type Accent = 'none' | 'subagent' | 'teammate'
 
 interface AgentRef {
   id: string                 // SessionId
-  name: string               // 显示名（队友名 / 子代理 label / 'lead' / '当前会话'）
+  name: string               // 会话标题/显示名（四级链见下；会话 chip 仍用它）
   role: AgentRole
+  roleName: string           // v12：角色名（chip 主标签）——root='lead'；teammate/subagent=会话树 displayName；unknown='—'
 }
 
 interface SessionScope {
@@ -776,6 +800,7 @@ interface Run {
   title: string              // 列头类型标签（Bash / 后台任务 / 终端）
   command?: string
   cwd?: string
+  description?: string       // v12：仅 bash/job；工具 description（trim+空白折叠+单行+≤200 字符；空则缺省）
   startedAt: number
   finishedAt?: number
   durationMs: number
@@ -806,11 +831,14 @@ interface RunNotice {
   message: string            // 给用户看的一行原因（中文或英文，UI 直接渲染）
 }
 
-// v7：displayName / AgentRef.name 的来源链（FACT：DSH Agent 没有 name 字段，inspect `Agent { id }`）
-//   1) ctx.sessionTitle.get(session)?.title
-//   2) ctx.sessions.get(sessionId) 的标题
-//   3) Team member name / subagent label（team/subagent 目录）
-//   4) 兜底「当前会话」
+// v7/v12：displayName / AgentRef.name / AgentRef.roleName 的来源链（FACT：DSH Agent 没有 name 字段，inspect `Agent { id }`）
+//   AgentRef.name（会话标题，会话 chip 使用）：
+//     1) ctx.sessionTitle.get(session)?.title  2) ctx.sessions.get(sessionId) 标题
+//     3) Team member name / subagent label     4) 兜底「当前会话」
+//   AgentRef.roleName（v12，chip 主标签）：
+//     - root/lead → 'lead'
+//     - teammate/subagent → 会话树 displayName（成员名/label）
+//     - unknown → '—'
 // 不得把 sessionId 长串作为显示名；空值 UI 显示「—」。
 // 另：rootAgent 缺失时也必须能列出队友——用任一 live agent 调 agentTeams.listMembers（API 只要求 exact live member）。
 
@@ -1041,7 +1069,7 @@ running ──终态──► linger ──(3s 到期 | 点「收起」)──�
 |---|---|
 | 类型 chips | 单选；计数**全局**：`全部 / Bash / 后台任务 / 终端`；0 计数仍显示（置灰可点） |
 | 会话范围多选 | 列出 `sessions`（root 恒在首、子代理缩进 + 蓝点、队友琥珀点）；默认见 §12.3；底部说明「仅显示有命令行活动的会话」 |
-| 搜索 | 匹配 `command` + 累积输出 + 显示名；**本地即时**，不触发 RPC；命中高亮 |
+| 搜索 | 匹配 `command` + 累积输出 + 显示名 + **`Run.description` + `agent.roleName`（v12）**；**本地即时**，不触发 RPC；命中高亮 |
 | 筛选状态 | 仅会话内存；View unmount 后保留到内存 store（再进 tab 仍生效） |
 | 与轮询关系 | 筛选不减少轮询数据（服务端返回整树，client 本地过滤），避免筛选切换触发全量重取 |
 
@@ -1225,7 +1253,7 @@ running ──终态──► linger ──(3s 到期 | 点「收起」)──�
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
-### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9/v10/v11 均不变：53 键；v11 客户端为纵深防御/缓存消毒内部实现，未新增导出）
+### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9–v12 均不变：53 键；v12 的 `runTitle`/`runTitleTooltip` 为组件内部函数，**未加入 `__internals`**）
 
 **仍然采用 v1 的单文件 + `__internals` 方案**（frontend 写作用域不含 `scripts/**`，禁止装打包器）：
 
@@ -1462,6 +1490,9 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v11 terminal owner 收紧**：`terminalScopes` = 会话树；树外 owner 不展示/不读；`knownSessionIds` 只清理「本 root 曾见并离开」；诊断 `droppedForeignRuns/terminalScopes` 可核对。
 - [ ] **v11 客户端防御**：异会话帧整帧丢弃（限流 warn 一次）；`mergePoll` 不跨会话改写 `view.sessionId`；缓存 key 含 `v11-1` 且 restore sanitize；切会话清 ghost/timers/FLIP/undo/armed/drag/最大化。
 - [ ] **v11 诊断**：`frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent` 每帧必带，`removedSent === frame.removed.length`。
+- [ ] **v12 `Run.description`**：仅 bash/job；来源 `exec.arguments.description`；trim+空白折叠+单行+≤200 代码点；空/非字符串缺省；计入 Tier2；超长置 `metaTruncated`。
+- [ ] **v12 `agent.roleName`**：root=`lead`、teammate/subagent=displayName、unknown=`—`；`agent.name`（会话标题）与 `agent.role` 保留。
+- [ ] **v12 标题/搜索**：标题优先 description → 命令首行（完整命令在输入块/悬浮）；chip 主标签=roleName；搜索覆盖 description+roleName。
 
 ### 13.2 frontend（T4）v2/v3 增补
 

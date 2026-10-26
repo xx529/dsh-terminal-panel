@@ -274,3 +274,11 @@ node tests/e2e/smoke.mjs
 | A37 | removed/prune/resync 不跨会话 | auto（Host + 缓存静态）+ manual | `host/v11-isolation.test.mjs::A36 removed…`、`A37 prune…`、`A37 resync 隔离…`；`client/v11.test.mjs::A37 缓存隔离…`（CACHE_VERSION/sanitize/save 拒绝）、`A37 切会话…` | Host/缓存 **PASS**；真机时序 **Unverified** |
 | A38 | 诊断可见（frameSessionId/droppedForeignRuns 等） | auto（Host + 静态）+ manual | `host/v11-isolation.test.mjs::A34 帧隔离…`（frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent）；`client/v11.test.mjs::A38 诊断摘要…` | Host/静态 **PASS**；真机 Network/Console **Unverified**（步骤见 report §16.4） |
 
+## 17. ui-spec v10 A39–A41 映射（v12 展示字段：description / roleName / 搜索）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A39 | 标题优先 description（单行 ≤200；无描述回退命令首行；完整命令在输入块+`title` 悬浮） | auto（Host 采集/序列化 + client mergePoll/静态）+ manual | `host/v12.test.mjs::classifyTool.description…`、`serializeRun…`、`采集范围…`；`client/v12.test.mjs::runTitle（内部函数，源码级）…`、`runTitleTooltip…`、`渲染接线（静态）…`、`mergePoll description…` | Host/Client **PASS**；真机标题/tooltip **Unverified** |
+| A40 | 角色 chip：主会话=`lead`；队友/子代理=displayName；未知=`—`；会话标题仍用于 chip | auto（Host roleName + client 静态）+ manual | `host/v12.test.mjs::agent.roleName…`、`roleName 源码兜底…`；`client/v12.test.mjs::AgentChip（静态）…` | Host/Client **PASS**；真机 chip 观感 **Unverified** |
+| A41 | 搜索命中 `description` + `agent.roleName`（高亮、即时过滤） | auto（纯函数）+ manual | `client/v12.test.mjs::searchMatch/filterRuns：命中 description 与 roleName…`（大小写不敏感/空 query/未命中断言） | 纯函数 **PASS**；真机高亮 **Unverified** |
+

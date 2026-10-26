@@ -1,8 +1,15 @@
-# 终端 · DSH 插件 UI/UX 设计规格（v9）
+# 终端 · DSH 插件 UI/UX 设计规格（v10）
 
 > 设计稿：Figma 本地文档 “Untitled” → Page「命令实况 · UI/UX 设计」
 > A `12:2` 主视图 · B `12:240` 会话范围筛选 · C `12:674` 状态与规则 · D `12:1005` Light · E `12:895` 边界状态
-> 状态：**v9（会话隔离，契约 v11 对应）** — v1→v8 已有八轮评审；v9 处理 P0 会话隔离：任意两个会话的终端面板**互不可见**，切会话/迟到帧不得串数据或闪动。 **v11.1（微）**：linger 滞留 **10s→3s**（`LINGER_DELAY_MS=3000`；v7 行内收起 10s 为历史值，不生效）。
+> 状态：**v10（任务描述/角色名展示，契约 v12 对应）** — v1→v9 已有九轮评审；v10 新增：卡片标题优先工具 `description`、agent chip 主标签用角色名（`roleName`）、搜索覆盖 description/角色名。**v11.1（微）**：linger 滞留 10s→3s（`LINGER_DELAY_MS=3000`）。
+
+## v10 相对 v9 的变更（第十轮：展示字段，契约 v12 对应）
+
+1. **标题优先 `Run.description`**：卡片/已完成行标题优先显示工具描述（bash/job 的 `exec.arguments.description`，单行 ≤200 字符）；无描述时回退命令第一条非空行；**完整命令仍在输入块与 `title` 悬浮**（tooltip = description + 完整 command）。
+2. **`agent.roleName` 角色 chip**：chip 主标签显示角色名——主会话=`lead`、队友/子代理=各自名称、未知=`—`；会话标题（`agent.name`）仍用于会话 chip，`agent.role` 保持。
+3. **搜索覆盖**：匹配 command + 输出 + 显示名 + **description + roleName**。
+4. **历史口径保持**：linger=3s（v11.1）、2px 状态边框/统一卡宽/会话隔离等 v8/v9/v11 条目不变。
 
 ## v9 相对 v8 的变更（第九轮：P0 会话隔离，契约 v11 对应）
 
@@ -94,8 +101,8 @@
 | hover/focus | `border-color`→92% + `box-shadow: inset 0 0 0 1px` 视觉加粗；**不改 border-width/width/height/padding**（不改变布局尺寸/不抖动） |
 | 溢出 | **作废**：横向滑动、横向滚动条、右侧 `›` 按钮与剩余列数角标、底部横向滚动条（v5 条款被取代；契约 §12.12 R9）；列多时换行到下一行，不横向滚 |
 | 面板高度 | `tp-root` 填满可用高度；执行区 + 已完成区随整体纵向滚动；行数增减不改变面板外框、不顶动 composer |
-| 标题行 | `类型标签` + `agent chip` + 弹簧 + `状态` + `耗时` + `停止按钮 16×16`（linger 态额外「收起」按钮） |
-| 命令行 | mono 11px、**只显示命令第一条非空行**（折叠空白、超长 `…`、多行末尾 ` +N 行`）、`title` 显示完整命令 |
+| 标题行 | `类型标签` + **`agent chip`（主标签=roleName：主会话 `lead`/队友·子代理名/未知 `—`）** + 弹簧 + `状态` + `耗时` + `停止按钮 16×16`（linger 态额外「收起」按钮） |
+| 命令行 | mono 11px；**标题优先级：`Run.description`（单行 ≤200 字符）→ 命令第一条非空行**（折叠空白、超长 `…`、多行末尾 ` +N 行`）；`title` 悬浮显示 description + 完整命令；完整命令始终在输入块中 |
 | 输出区 | 圆角 8、终端底、内边距 8/9、行高 14.5、字号 10 mono、纵向滚动、自动贴底；**顶部输入块**（bash/job：完整 `command` 每行 `$ `；terminal：`$ <name>` + `inputs` 每行 `› `）+ 分隔线 + 输出；空输出仍显示输入块 + 空文案；`notice` 在输入块上方 |
 | 脚注 | 左：pid / terminal id / job id；右：`跟随中`（蓝点）|
 | 会话归属 | 左侧 3px 竖条：子代理=蓝、队友=琥珀、当前会话=无 |
@@ -107,7 +114,7 @@
 |---|---|---|
 | `running` | 执行区卡片 | 正常运行卡片（标题/命令/输出/脚注/停止），不显示倒计时 |
 | `linger`（终态后 **3s**） | 执行区卡片 | 保留卡片 + **倒计时徽标（琥珀点 + `Ns 后移入已完成`，固定占位 min-width 152）+「收起」按钮**；hover/focus 暂停倒计时（移出/失焦后重新计 **3s**）；`pinned` 不 arm；到点或点「收起」→ completed |
-| `completed` | 已完成分组（执行区下方） | 32px 紧凑行（`chevron` + 类型 + agent + 首行命令 + 状态 + 耗时 + `⋯`）；**展开由 `view.group.expandedIds` 布尔集合驱动**（行头/组头均可点击），**不再渲染倒计时/进度条**（样式/词典暂留，测试兼容）；分组默认折叠、整组内滚；**边框生效 2px**（已完成=绿 success 60%、失败=红 error 65%；hover/focus 用 inset shadow 加粗不改尺寸） |
+| `completed` | 已完成分组（执行区下方） | 32px 紧凑行（`chevron` + 类型 + agent 角色名 chip + **标题（description → 命令首行）** + 状态 + 耗时 + `⋯`）；**展开由 `view.group.expandedIds` 布尔集合驱动**（行头/组头均可点击），**不再渲染倒计时/进度条**（样式/词典暂留，测试兼容）；分组默认折叠、整组内滚；**边框生效 2px**（已完成=绿 success 60%、失败=红 error 65%；hover/focus 用 inset shadow 加粗不改尺寸） |
 
 > **替换关系**：v5/v7 的「终态后行内按 10s 收起（**历史值，不生效**）+ 新终态自动展开已完成分组」被 v6 三态取代（linger=3s，v11.1 起）；**v7 再修订**：已完成行的 10s 倒计时/进度条**删除**，展开由 `expandedIds` 独立控制（契约 §6.9）。
 
@@ -151,12 +158,15 @@
 28. **会话隔离（v9）**：面板只显示当前会话树的 Run；其它会话的卡片/输出/终端不得出现（Host 按会话过滤 + 客户端帧级校验）。
 29. **切会话（v9）**：切走后原会话缓存保留；切回时清 ghost/timers/FLIP/undo/armed/drag/最大化并按缓存+resync 恢复（首屏不空）；不得沿用其它会话的缓存或游标。
 30. **迟到异会话帧（v9）**：`frame.sessionId !== 当前` → 整帧丢弃（保留当前 UI、不闪、不重置 revision/游标）；控制台限流 warn 一次，供排障。
+31. **标题优先级（v10）**：卡片/已完成行标题 = `Run.description`（若有）否则命令第一条非空行；完整命令保留在输入块与 `title` 悬浮（description 与 command 各占一行）。
+32. **角色 chip（v10）**：chip 主标签 = `agent.roleName`（主会话 `lead`、队友/子代理显示各自名称、未知 `—`）；会话标题 `agent.name` 仍用于会话 chip；缺失 roleName 时回退 name。
+33. **搜索（v10）**：除 command/输出/显示名外，额外匹配 `description` 与 `roleName`；命中高亮规则不变。
 
 ## 4. 筛选
 
 - **类型**：单选 chips，计数为全局值。
 - **会话范围（多选）**：当前会话（默认选中）/ 每个子代理（缩进 + 蓝点）/ 每个队友（琥珀点）；面板底部说明「仅显示有命令行活动的会话」。
-- **搜索**：匹配命令与输出文本，本地即时过滤并高亮。
+- **搜索**：匹配命令与输出文本 + `Run.description` + `agent.roleName`（v10），本地即时过滤并高亮。
 - 筛选状态仅在会话内存中保留（不跨重启）。
 
 ## 5. 数据源与能力
@@ -238,3 +248,6 @@
 | A36 | 异会话迟到帧丢弃且不闪（v9 P0） | 迟到 B 帧到达 A：整帧丢弃、当前 UI 不闪、revision/游标不变、限流 warn 一次 | 客户端用例 + 真机（manual/Unverified） |
 | A37 | removed/prune/resync 不跨会话（v9 P0） | A 帧 removed 不含 B；B 的 prune/resync 不影响 A；`removedSent === frame.removed.length` | Host 用例 + 真机（manual/Unverified） |
 | A38 | 隔离诊断可见（v9 P0） | 帧带 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`，取值与双会话场景一致 | Host 用例 + 真机 Network/Console（manual/Unverified） |
+| A39 | 标题优先 description（v10） | 有 `Run.description` 时卡片/已完成行标题显示描述（单行 ≤200）；无描述回退命令首行；完整命令在输入块 + `title` 悬浮 | 纯函数 `runTitle`/静态断言 + 真机（manual/Unverified） |
+| A40 | 角色 chip（v10） | 主会话 chip 主标签=`lead`；队友/子代理显示各自名称；未知=`—`；会话标题仍用于会话 chip | Host/client 用例 + 真机（manual/Unverified） |
+| A41 | 搜索命中 description/角色名（v10） | 搜索词可命中 `description` 与 `agent.roleName`（高亮、即时过滤） | 纯函数搜索用例 + 真机（manual/Unverified） |
