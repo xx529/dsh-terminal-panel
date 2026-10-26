@@ -29,12 +29,23 @@ npm run verify
 
 > 本仓库**不安装依赖**（宿主包由 DSH profile 提供；Node 22.19+）。测试与冒烟均离线可跑。
 
+## 安装 / 发布
+
+一键脚本（推送 + 安装进 DSH profile；先 `--dry-run` 看计划，不改任何文件）：
+
+```bash
+./deploy/publish-and-install.sh --dry-run
+./deploy/publish-and-install.sh --timeout 300   # 安装阶段联网 pnpm 默认 120s 超时，超时 exit 6；优先离线
+```
+
+`--timeout <秒>`（默认 **120**，范围 **10–3600**）覆盖 `dsh plugin add/install` 与 `pnpm install` 调用（安装与回滚同路径）；无 GNU `timeout` 时依次降级 `gtimeout` → `perl alarm`，超时统一 **exit 6**（shell 可能打印一行 `Alarm clock: 14`，属正常）。完整选项/回滚见 [`docs/install.md`](docs/install.md) §1.3。
+
 ## 链接
 
 - 设计规格（v4，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
-- 架构与接口契约（v5）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
+- 架构与接口契约（v6）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
 - 测试报告（T5 基线 236，当前累计 255）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）

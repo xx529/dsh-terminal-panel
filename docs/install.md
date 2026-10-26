@@ -63,7 +63,33 @@ interface ChangeResult {
 
 ### 1.2 备选路径（不推荐，`[ASSUMPTION]`，需用户明确同意）
 
-仅在 `install_bundle` 不可用时考虑。等价于它做的事：profile `package.json` 的 `dependencies` 加 `"dsh-terminal-panel": "link:/Users/lzx/Documents/GitHub/dsh-terminal-panel"`、`dsh.profile.bundles` 追加 `"dsh-terminal-panel"`，然后在 profile 目录跑 `pnpm install` 并重启。`[ASSUMPTION]`（未实测）；手工操作前先备份 profile 两个文件。**优先让 `plugin_manager` 做**。
+仅在 `install_bundle` 不可用时考虑。等价于它做的事：profile `package.json` 的 `dependencies` 加 `"dsh-terminal-panel": "link:/Users/lzx/Documents/GitHub/dsh-terminal-panel"`、`dsh.profile.bundles` 追加 `"dsh-terminal-panel"`，然后在 profile 目录跑 `pnpm install` 并重启。`[ASSUMPTION]`（未实测）；手工操作前先备份 profile 两个文件。**优先让 `plugin_manager` 做**；若确需手工路径，优先用 §1.3 的脚本（自带备份/超时/回滚），而不是纯手敲命令。
+
+### 1.3 一键脚本（`deploy/publish-and-install.sh`，可选）
+
+`deploy/publish-and-install.sh` 把「推送 + 安装 + 回滚」封装成一条命令，**安装阶段的所有 `dsh plugin` / `pnpm` 调用都带超时保护**：
+
+```bash
+./deploy/publish-and-install.sh --dry-run                # 只打印将执行的命令与变更摘要（不改任何文件、不推送、不安装）
+./deploy/publish-and-install.sh --timeout 300            # 放宽超时到 300s（默认 120s）
+./deploy/publish-and-install.sh --no-push                # 只安装，不推送
+./deploy/publish-and-install.sh --rollback               # 回滚最近一次安装（恢复备份 + 从 bundles 移除 + 重装清理）
+```
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `--timeout <秒>` / `--timeout=<秒>` | **120** | 覆盖 `dsh plugin --profile … add link:`、`dsh plugin install`（离线/联网）、`pnpm install`（离线/联网）的超时；**范围 10–3600**（越界 exit 2）；**超时统一 exit 6** |
+| `--dry-run` | off | 只打印计划，不改文件/不推送/不安装（排查挂起首选） |
+| `--no-push` / `--no-install` | off | 只装 / 只推 |
+| `--rollback` | off | 恢复最近一次 profile 备份并从 `dsh.profile.bundles` 移除插件（幂等） |
+| `--skip-tests` | off | 跳过 `npm run verify`（仅限 CI 已跑过时使用） |
+| `--yes` | off | 允许「兼容回退路径」（无 `dsh` CLI 或 CLI 安装失败时手工改写 profile） |
+
+超时实现（三路降级）：GNU `timeout` → `gtimeout` → `perl -e 'alarm shift; exec @ARGV'` → 无保护降级（会打印 warning）。GNU rc=124 与 perl SIGALRM rc=142 归一为 124，脚本**明确报错而不静默等待**，最终以 **exit 6** 结束并提示可用 `--timeout` 放宽。
+
+> 已知副作用：本机没有 GNU `timeout`、由 perl alarm 终止子进程时，shell 可能打印一行 **`Alarm clock: 14`** —— 这是正常的超时终止提示，不是脚本错误。
+>
+> 排障：**pnpm 安装长时间无输出/疑似挂起**时，先 `--dry-run` 看计划，再用 `--timeout <秒>`（如 300）重跑；脚本会优先离线（`pnpm install --offline`），失败才走联网并受同一超时保护。不要 Ctrl-C 后手工补齐，按 §5 处理。
 
 ## 2. 生效矩阵（`[FACT]`，scout §8.2）
 
@@ -162,6 +188,7 @@ await (await fetch('/terminal-panel/rpc', {
 | `application: restart-required` | 替换了已安装包的代码（新 JS 代际） | 重启 DSH 桌面版；`restartReason` 说明原因 |
 | `application: overridden` | 更高优先级 patch 层覆盖同名 id | 检查 profile `cordis.patch.yml` 与其它 bundle 的同名行 |
 | `pendingBuilds` 非空 | pnpm 11 拦了依赖构建脚本 | 本插件无构建脚本；若真出现，等用户明确批准后带 `approvedBuilds` 重试 |
+| **pnpm 安装长时间无输出 / 疑似挂起** | 联网解析依赖慢；旧脚本无超时（现脚本默认 120s 保护） | 先 `deploy/publish-and-install.sh --dry-run` 看计划；再用 `--timeout <秒>`（如 300）重跑；离线优先；**超时 = exit 6**；perl 降级时出现的 `Alarm clock: 14` 属正常（§1.3）；不要 Ctrl-C 后手工补齐 |
 | tab 完全不出现 | blank 会话（未发消息）；或可用 View < 2 | 先发消息；这是宿主行为 `[FACT]`（ui-conversation README:88/74） |
 | tab 不出现（已开始会话） | 插件未启用；Client bundle 未到达（U4）；slot entry crashed | 查 V1/V4；Console 搜 `slot entry crashed in 'conversation.view'` |
 | 面板空白/报错 | `lib/client.js` 运行期异常 | `node --check`；Console 看堆栈；修好后重启 + 刷新 |

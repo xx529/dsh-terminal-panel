@@ -93,7 +93,8 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ## 6. 安装与发布
 
 - 官方安装路径（plugin_manager `install_bundle`、生效/验证/回滚）：[`docs/install.md`](docs/install.md)。
-- 一键发布 + 安装脚本：`deploy/publish-and-install.sh`（push 到 GitHub + 安装进 DSH profile；支持 `--dry-run`、`--rollback`、`--no-push`、`--no-install` 等；脚本由发布任务交付，若目录尚未生成以 `docs/install.md` 为准）。
+- 一键发布 + 安装脚本：`deploy/publish-and-install.sh`（push 到 GitHub + 安装进 DSH profile；支持 `--dry-run`、`--rollback`、`--no-push`、`--no-install`、`--yes`、`--skip-tests` 等；脚本由发布任务交付，若目录尚未生成以 `docs/install.md` 为准）。
+  - **`--timeout <秒>`**（默认 **120**，范围 **10–3600**，越界 exit 2）：覆盖 `dsh plugin add/install` 与 `pnpm install`（安装+回滚同路径）的调用；超时统一 **exit 6**。超时实现三路降级 GNU `timeout` → `gtimeout` → `perl alarm` → 无保护（会 warn）；perl 终止时 shell 打印的 `Alarm clock: 14` 属正常。安装优先离线（`pnpm install --offline`），失败才联网且同受超时保护。详见 `docs/install.md` §1.3。
 - 生效事实：配置层/启停可 live reload；**替换已安装包代码需重启 DSH 桌面版 + 刷新页面**（contract §0 / install.md §2）。
 
 ## 7. 文档索引
