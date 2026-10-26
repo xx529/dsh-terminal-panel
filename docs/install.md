@@ -91,6 +91,16 @@ interface ChangeResult {
 >
 > 排障：**pnpm 安装长时间无输出/疑似挂起**时，先 `--dry-run` 看计划，再用 `--timeout <秒>`（如 300）重跑；脚本会优先离线（`pnpm install --offline`），失败才走联网并受同一超时保护。不要 Ctrl-C 后手工补齐，按 §5 处理。
 
+### 1.4 发布前检查清单（`--dry-run` 回归）
+
+> prevention 载体（来源复盘：`docs/retro/2026-10-26-install-pnpm-hang-and-teammate-failure.md`，task-23）。**每次发布前逐项执行并保留输出**（贴进发布回执/任务板），不依赖 `npm run verify` 单独覆盖安装期风险。
+
+- [ ] **门禁**：`npm run verify` exit 0（记录 tests/smoke 数字）
+- [ ] **计划**：`./deploy/publish-and-install.sh --dry-run` 输出计划；确认安装阶段**离线优先**、`--timeout` 默认 120s 生效、无「联网 pnpm 无保护」路径
+- [ ] **超时保护**：实际安装（可用 `--no-push`）时观察超时保护；预期超时 **exit 6**，不得静默挂起（perl 降级出现 `Alarm clock: 14` 属正常）
+- [ ] **路由验证**：安装后按 §3.1.1 用页面内 fetch 验证 `200 {"ok":true,"value":{"protocol":1,…}}`（非 405）
+- [ ] **留证**：把 dry-run 输出、verify 数字、安装退出码贴进发布回执
+
 ## 2. 生效矩阵（`[FACT]`，scout §8.2）
 
 | 变更类型 | 是否免重启 | 依据 |

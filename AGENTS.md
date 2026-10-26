@@ -142,6 +142,15 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 - 冻结表改动需 maintainer 批准；低风险文案/像素级差异见 contract §12.10（L1–L5）。
 - 文档写作用域各归其主（architect=契约/docs；backend=lib/host；frontend=lib/client.js；tester=tests/docs/testing；devops=deploy），改动不要越界。
 
+### 8.1 长步骤、成员失败与结论取证（复盘沉淀，2026-10-26）
+
+> 来源：`docs/retro/2026-10-26-install-pnpm-hang-and-teammate-failure.md`（task-23）与 `docs/retro/2026-10-26-version-residuals-and-scope-assumptions.md`（task-48）。
+
+- **长步骤先报预计耗时**：预计 **>2 分钟**的命令（安装 / 联网 pnpm / 构建 / 全量回归等）开始前用 `send_message` 报「即将执行 X，预计 N 分钟」；执行中至少给一次进度或完成回执，不得长时间静默。
+- **成员中途 failed = Lead 立即接手**：teammate `failed` 或无收尾回执时，Lead 立即 `team_task_update` reassign，并**先核对现场**（进程 / 文件 / 安装状态 / 日志 / 任务板 owner）再继续；不得等 owner 自愈或只看任务板状态。
+- **「旧构建 / 旧 bundle / 旧页面」类结论必须可复现**：必须附命令与原始输出（如 `git show HEAD:lib/client.js | sed -n '2550,2570p'`、`grep -n`、页面 Network/Console 截图），**不能只给行号摘要或二手判断**；被证伪的假设写进复盘。
+- **升版必须列「替换 / 作废清单」**：契约 §0 每次升版列明被替换 / 作废的旧状态机、旧文案、旧样式、旧测试断言（owner: architect）；仍被旧断言锁定的死代码由 tester 登记技术债（owner: tester）。
+
 ## 9. 验收基线
 
 - **代码侧已交付**：`338 tests / 338 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（tester T46 最终报告，2026-10-26）。
