@@ -11,7 +11,7 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 **当前会话 + 子代理 + Agent Team 队友** 的 bash 前台执行、后台任务（`ctx.jobs`）、持久终端（`ctx.terminals`）
 输出聚合成**只读**的卡片网格面板（v12：标题优先 description/角色名 chip/P0 会话隔离/统一卡宽 grid；详见 §4）。
 
-- 代码侧已交付（见 §9）；**尚未做真机安装与视觉验收**。
+- 代码侧已交付（见 §9）；**用户已确认整体可用（v0.1.0，2026-10-26，口头确认、未逐条留证）**。
 - 双端形态：Host 半端 = ESM Cordis 插件；Client 半端 = 单文件 classic script（`window.__ModuleLoader__.load`）。
 - 无运行时依赖、无构建步骤。
 
@@ -59,14 +59,14 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 
 ```bash
 npm run check      # node --check lib/index.js && node --check lib/client.js
-npm test           # node --test "tests/**/*.test.mjs" → 365 tests / 365 pass
+npm test           # node --test "tests/**/*.test.mjs" → 382 tests / 382 pass
 npm run smoke      # node scripts/smoke-host.mjs → 91/91 checks，exit 0
 npm run verify     # check → test → smoke（当前 exit 0）
 node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ```
 
 **门禁：任何改动后必须跑 `npm run verify` 并通过（exit 0）。** 不依赖网络、不装依赖。
-当前基线：**365 tests / 365 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（以 tester T69 最终报告为准）。
+当前基线：**382 tests / 382 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（实测，2026-10-26）。
 
 ## 4. 硬约束（摘自 contract v12，违反即缺陷）
 
@@ -113,7 +113,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 5. **跨会话聚合待真机验证**（scout U6）；失败时按来源降级（chip 置灰 + 原因），不影响面板主体。
 6. **terminal 无 Agent 时只能看元信息（v7）**：`agents.get(sessionId)` 拿不到 live Agent 时默认走 `tools/execute` 事件兜底（`terminalController` 是侧栏终端注册表、默认关闭），`outputMode:'meta-only'` + `notice`，读不到连续实时输出（tier3 片段非全量）；此时停止按钮不可用（该降级仍优于静默 0 条）。
 7. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则在 `[data-conversation-content]` set/remove `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，无 body 兜底）；宿主 DOM 变更可能失效（终端 tab 仍可用，只是输入框未隐藏，其它 tab 不受影响）。
-8. **真机 5 项缺陷已代码侧修复，真机复验仍待做**（见 README「真机反馈修复（v7）」）；不得据此宣称已真机验收。
+8. **真机 5 项缺陷已代码侧修复，并随 v0.1.0 由用户口头确认整体可用**（2026-10-26；逐条 manual 证据仍缺，对外宣称前需补证）。
 9. **v8 展示层行为变更（不是缺陷）**：执行区横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 3s + 收起按钮；v8 原 10s，v11.1 起 3s）；切 tab 依赖会话缓存（LRU 4/TTL 30min，第 5 个会话不保证首屏不空）。
 10. **v9 行为变更（不是缺陷）**：已完成行改为独立展开且**无倒计时**；执行区改为按行铺满（不再固定 352）；状态色为黄/绿/红；树外 owner 的 terminal 可升级 live（未命中仍 meta-only + notice）。
 11. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（**最后一行单卡不拉伸**；容器 <716px 单列单卡占满）；拖右缘只调统一列宽、不再支持每卡独立宽；重排改为同步 ghost + FLIP。
@@ -161,13 +161,12 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 ## 9. 验收基线
 
-- **代码侧已交付**：`365 tests / 365 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（以 tester T69 最终报告为准，2026-10-26）。
-- **v12**：`Run.description?`（bash/job，单行 ≤200）/ `agent.roleName`（chip 主标签）/ 标题 description→命令首行 / 搜索覆盖 description+roleName——代码侧已修（T66/T67），真机复验待做；ui-spec v10 新增 A39–A41（均含 manual/Unverified 项）。
+- **代码侧已交付**：`382 tests / 382 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（实测，2026-10-26）。
+- **v12**：`Run.description?`（bash/job，单行 ≤200）/ `agent.roleName`（chip 主标签）/ 标题 description→命令首行 / 搜索覆盖 description+roleName——代码侧已修（T66/T67），随 v0.1.0 由用户口头确认整体可用；ui-spec v10 新增 A39–A41（manual 证据仍缺）。
 - **v11**：P0 会话隔离（帧/增量/removed/prune/resync/游标按会话树隔离）/ terminal owner 收紧（树外不展示）/ 客户端纵深防御——代码侧已交付（T57/T58）。
 - **v10**：2px 状态边框 / 统一卡宽 CSS grid（auto-fill、单卡不拉伸）/ 同步 ghost+FLIP——代码侧已交付（T52）。
 - **v9**：已完成行独立展开（无倒计时）/ 按行铺满 / 状态色板 / 树外 terminal owner 升级 live / 诊断扩展——代码侧已交付（T43/T44）。
 - **v8**：展示层（网格换行 / Run 三态 linger / 会话缓存 / FLIP+fade / 首帧 loading）+ host 一致性补丁（resync / removed-runs 互斥 / revision 回退恢复）——代码侧已交付（T37/T41）。
-- **v7 真机反馈 5 项**：terminal 记录可见 / 界面抖动 / 标题首行 / 输出含输入 / 收起时序 / composer 隐藏——代码侧已修（T31/T32），**真机复验待做**；ui-spec v5 新增 A1–A13 可验收条目（其中 A7/A8/A9/A10/A11/A12/A13 含真机/manual 项）；terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史 pty 不可回读，不计缺陷）。
-- **真机待验收**：ui-spec 有 **19 项 Unverified**（视觉/像素、指针/键盘交互、宿主集成行为、平台限制项、网络/权限异常、性能等），清单与步骤见 `docs/testing/integration-report.md` §10 与 `docs/install.md` §3。
-- **不得宣称已真机验收**，除非逐项执行并留下证据（截图/Console/Network 记录）。
+- **v7 真机反馈 5 项**：terminal 记录可见 / 界面抖动 / 标题首行 / 输出含输入 / 收起时序 / composer 隐藏——代码侧已修（T31/T32），随 v0.1.0 由用户口头确认整体可用；ui-spec v5 新增 A1–A13 可验收条目（其中 A7/A8/A9/A10/A11/A12/A13 含真机/manual 项）；terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史 pty 不可回读，不计缺陷）。
+- **v0.1.0 验收状态（2026-10-26）**：用户已**确认整体验收通过**（v12 / `fbe8586` / tag `v0.1.0`；**口头确认整体可用、未逐条提供截图/Console/Network 证据**）。ui-spec A1–A41 的逐条真机证据仍缺失（含 19 项 Unverified/manual），**对外宣称验收前需补证据**。详见 `docs/testing/integration-report.md` §15。
 - 发布前最小集合（集成报告 §9）：H1/M2 已修；真机 19 项 + `docs/retro` P2 已关闭；新增回归不得让 `npm run verify` 回退。
