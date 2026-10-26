@@ -37,10 +37,12 @@ test('§11.2 v8 冻结表：__internals 53 键，新增 12 键全部存在，v7 
   }
 })
 
-test('v8 常量：LINGER_DELAY_MS=10000 / CARD_EXIT_MS=180 / FLIP_MS=200', { skip }, () => {
-  assert.equal(value('LINGER_DELAY_MS'), 10_000)
+test('v8 常量：LINGER_DELAY_MS=3000（v11.1 3s 滞留）/ CARD_EXIT_MS=180 / FLIP_MS=200；COLLAPSE_DELAY_MS 保持 10000', { skip }, () => {
+  assert.equal(value('LINGER_DELAY_MS'), 3_000, 'linger 滞留时长 = 3s（v11.1 用户调整）')
   assert.equal(value('CARD_EXIT_MS'), 180)
   assert.equal(value('FLIP_MS'), 200)
+  assert.equal(value('COLLAPSE_DELAY_MS'), 10_000, 'v7 废弃 collapse 状态机仍为 10s，不受 linger 调整影响')
+  assert.equal(Object.keys(client.internals).length, 53, '__internals 仍 53 键')
 })
 
 /* ---------------- 会话缓存（v8 #1） ---------------- */
@@ -174,12 +176,12 @@ test('runPhase：running 恒为 running；非终态按 running；终态无 linge
   assert.equal(phase(null, undefined, now), 'completed')
 })
 
-test('runPhase：终态 + 10s 内 → linger；到点 → completed；paused/pinned 保持在 linger', { skip }, () => {
+test('runPhase：终态 + 3s 内 → linger；到点 → completed；paused/pinned 保持在 linger', { skip }, () => {
   const phase = fn('runPhase')
   const run = terminalRun()
   const deadline = 20_000
   const column = { linger: { deadline, paused: false, pinned: false } }
-  assert.equal(phase(run, column, deadline - 1), 'linger', '10s 内必须 linger')
+  assert.equal(phase(run, column, deadline - 1), 'linger', '3s 内必须 linger')
   assert.equal(phase(run, column, deadline), 'completed', '到点进入 completed')
   const paused = { linger: { deadline, paused: true, pinned: false } }
   assert.equal(phase(run, paused, deadline + 999_999), 'linger', 'paused 冻结：超时仍 linger')
@@ -188,19 +190,22 @@ test('runPhase：终态 + 10s 内 → linger；到点 → completed；paused/pin
   assert.equal(phase(run, { linger: { deadline: null, paused: false, pinned: false } }, deadline + 1), 'completed', 'deadline=null 且未 pinned → completed')
 })
 
-test('lingerVisual：倒计时/进度/暂停/到点；null 安全', { skip }, () => {
+test('lingerVisual：倒计时/进度/暂停/到点；progress 按 3s 归一分母；null 安全', { skip }, () => {
   const visual = fn('lingerVisual')
   const empty = visual(null, 1_000)
   assert.deepEqual(empty, { visible: false, remaining: 0, progress: 0, armed: false })
-  const deadline = 6_000
+  const deadline = 4_000 // now=1000 + 3000
   const running = visual({ deadline, paused: false, pinned: false }, 1_000)
   assert.equal(running.visible, true)
   assert.equal(running.armed, true)
-  assert.equal(running.remaining, 5_000)
-  assert.equal(running.progress, 0.5, '剩余 5s / 10s = 0.5')
+  assert.equal(running.remaining, 3_000)
+  assert.equal(running.progress, 1, '剩余 3s / 3000ms 分母 = 1')
+  const half = visual({ deadline, paused: false, pinned: false }, 2_500)
+  assert.equal(half.remaining, 1_500)
+  assert.equal(half.progress, 0.5, '剩余 1.5s / 3s = 0.5（分母 3000）')
   // paused/pinned 的语义：deadline 不会被重算，因此到点后仍 armed（停留 linger），
   // remaining 按 now 递减（到点后为 0），不会自动 collapse。
-  const paused = visual({ deadline, paused: true, pinned: false }, 5_500)
+  const paused = visual({ deadline, paused: true, pinned: false }, 3_500)
   assert.equal(paused.armed, true)
   assert.equal(paused.remaining, 500, 'paused 不重置 deadline（剩余时间按冻结的 deadline 计算）')
   assert.equal(visual({ deadline, paused: true, pinned: false }, deadline).armed, true, 'paused 到点后仍停留 linger')
@@ -222,7 +227,7 @@ test('pauseLinger / resumeLinger：「收起」collapseLinger 立即完成且幂
   assert.equal(pause(null), null, 'null 安全')
   const resumed = resume(paused, 2_000)
   assert.equal(resumed.paused, false)
-  assert.equal(resumed.deadline, 12_000, 'resume 重新计完整 10s')
+  assert.equal(resumed.deadline, 5_000, 'resume 重新计完整 3s（now 2000 + 3000）')
   assert.equal(resume(null), null)
   // 「收起」立即完成：返回 null = 结束 linger
   assert.equal(collapse(state), null)
@@ -237,17 +242,17 @@ test('mergePoll：running→终态进入 linger；历史完成不滞留；pinned
   const phase = fn('runPhase')
   const now = 100_000
   const running = terminalRun({ status: 'running', finishedAt: undefined })
-  // 1) running 帧 → 2) 终态帧（10s 内）→ linger
+  // 1) running 帧 → 2) 终态帧（3s 内）→ linger
   let state = mergePoll(makeViewState(), makeFrame({ revision: 1, runs: [{ ...running }] }), { now })
   const done = terminalRun({ finishedAt: now })
   state = mergePoll(state, makeFrame({ revision: 2, runs: [{ ...done }] }), { now })
   const linger = state.columns['terminal:1'].linger
   assert.ok(linger && typeof linger === 'object', 'running→终态必须进入 linger（v8 #3）')
-  assert.equal(linger.deadline, Math.min(now + 10_000, done.finishedAt + 10_000))
+  assert.equal(linger.deadline, Math.min(now + 3_000, done.finishedAt + 3_000))
   assert.equal(phase(state.runs['terminal:1'], state.columns['terminal:1'], now), 'linger')
   assert.equal(phase(state.runs['terminal:1'], state.columns['terminal:1'], linger.deadline), 'completed', '到点进入 completed')
 
-  // 历史完成（>10s）：另一 Run 的 running→终态转换发生时 finishedAt 已在过去 → 不 arm linger
+  // 历史完成（>3s）：另一 Run 的 running→终态转换发生时 finishedAt 已在过去 → 不 arm linger
   const oldDone = terminalRun({ runId: 'terminal:old', finishedAt: now - 60_000 })
   let state2 = mergePoll(makeViewState(), makeFrame({ revision: 1, runs: [{ ...oldDone, status: 'running', finishedAt: undefined }] }), { now })
   state2 = mergePoll(state2, makeFrame({ revision: 2, runs: [{ ...oldDone }] }), { now })
@@ -262,6 +267,40 @@ test('mergePoll：running→终态进入 linger；历史完成不滞留；pinned
   assert.ok(!state3.columns['terminal:pinned'].linger, 'pinned 不 arm linger')
   assert.equal(state3.columns['terminal:pinned'].collapse.pinned, true, 'pinned 状态保留')
   assert.equal(phase(state3.runs['terminal:pinned'], state3.columns['terminal:pinned'], now), 'completed')
+})
+
+/* ---------------- linger 3s 边界（v11.1） ---------------- */
+test('linger 3s 边界：deadline=finishedAt+3000；3999 仍 linger / 4000 completed；progress 分母 3000', { skip }, () => {
+  const mergePoll = fn('mergePoll')
+  const phase = fn('runPhase')
+  const visual = fn('lingerVisual')
+  const pause = fn('pauseLinger')
+  const resume = fn('resumeLinger')
+  const now = 1_000
+  const running = terminalRun({ status: 'running', finishedAt: undefined })
+  let state = mergePoll(makeViewState(), makeFrame({ revision: 1, runs: [{ ...running }] }), { now })
+  const done = terminalRun({ finishedAt: now })
+  state = mergePoll(state, makeFrame({ revision: 2, runs: [{ ...done }] }), { now })
+  const column = state.columns['terminal:1']
+  assert.equal(column.linger.deadline, 4_000, 'deadline = finishedAt(1000) + 3000')
+  const run = state.runs['terminal:1']
+  assert.equal(phase(run, column, 3_999), 'linger', '3999ms（<3s）仍 linger')
+  assert.equal(phase(run, column, 4_000), 'completed', '4000ms（到点）进入 completed')
+  const visualAtStart = visual(column.linger, now)
+  assert.equal(visualAtStart.remaining, 3_000)
+  assert.equal(visualAtStart.progress, 1)
+  const visualNearEnd = visual(column.linger, 3_999)
+  assert.equal(visualNearEnd.remaining, 1)
+  assert.ok(visualNearEnd.progress > 0 && visualNearEnd.progress < 0.001)
+  const expired = visual(column.linger, 4_000)
+  assert.deepEqual(expired, { visible: false, remaining: 0, progress: 0, armed: false }, '到点后 countdown 不可见（armed=false）')
+  // pause 冻结剩余；resume 重新计 3000
+  const paused = pause(column.linger, 2_000)
+  assert.equal(visual(paused, 3_500).remaining, 2_000, '暂停时冻结在 2000ms 剩余（不随 now 递减）')
+  const resumed = resume(paused, 5_000)
+  assert.equal(resumed.deadline, 8_000, 'resume 后 deadline = now 5000 + 3000')
+  assert.equal(visual(resumed, 5_000).remaining, 3_000)
+  assert.equal(visual(resumed, 6_000).remaining, 2_000)
 })
 
 /* ---------------- FLIP（v8 #5 / A19） ---------------- */
@@ -331,11 +370,11 @@ test('A18/A21 缓存接线（静态）：SESSION_CACHE.get / cacheSaveSession / 
 /* ---------------- DEF-1 回归：hover/focus 暂停时倒计时冻结（Lead 裁决本轮修复） ---------------- */
 test('DEF-1 回归：hover/focus 暂停期间 linger 倒计时/进度冻结，resume 后回到契约语义', { skip }, () => {
   // 契约 §6.7 / ui-spec A17：hover/focus 暂停倒计时（remaining/progress 不随 now 前进）；
-  // 移出/失焦后 resume：deadline=now+10s，remaining 回到 10s 并在之后正常递减。
+  // 移出/失焦后 resume：deadline=now+3s，remaining 回到 3s 并在之后正常递减。
   const visual = fn('lingerVisual')
   const pause = fn('pauseLinger')
   const resume = fn('resumeLinger')
-  const armed = { deadline: 11_000, paused: false, pinned: false }
+  const armed = { deadline: 4_000, paused: false, pinned: false }
   const paused = pause(armed)
   assert.equal(paused.paused, true)
 
@@ -347,11 +386,11 @@ test('DEF-1 回归：hover/focus 暂停期间 linger 倒计时/进度冻结，re
 
   const resumed = resume(paused, 9_000)
   assert.equal(resumed.paused, false)
-  assert.equal(resumed.deadline, 19_000, 'resume 重新计完整 10s')
+  assert.equal(resumed.deadline, 12_000, 'resume 重新计完整 3s（now 9000 + 3000）')
   const atResume = visual(resumed, 9_000)
-  assert.equal(atResume.remaining, 10_000, 'resume 瞬间 remaining 回到 10s')
+  assert.equal(atResume.remaining, 3_000, 'resume 瞬间 remaining 回到 3s')
   assert.equal(atResume.armed, true)
   const oneSecondLater = visual(resumed, 10_000)
-  assert.equal(oneSecondLater.remaining, 9_000, 'resume 后 remaining 正常递减')
+  assert.equal(oneSecondLater.remaining, 2_000, 'resume 后 remaining 正常递减（3s - 1s）')
   assert.ok(oneSecondLater.progress < atResume.progress)
 })
