@@ -322,12 +322,13 @@ export function createFakeHostCtx({ services = {}, config = {} } = {}) {
     on(event, handler) {
       const entry = { event, handler }
       listeners.push(entry)
-      return {
-        dispose() {
-          const i = listeners.indexOf(entry)
-          if (i >= 0) listeners.splice(i, 1)
-        },
+      // 与真实 cordis 一致：ctx.on 返回 disposer 函数（profile 内 dsh-better-sidebar 等均以 off() 调用）。
+      const dispose = () => {
+        const i = listeners.indexOf(entry)
+        if (i >= 0) listeners.splice(i, 1)
       }
+      dispose.dispose = dispose
+      return dispose
     },
     get(name) {
       if (name === 'webServer') return webServer
