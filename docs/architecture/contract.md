@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v6）
+# dsh-terminal-panel · 架构与契约（v7）
 
-> 状态：**v6（v5 + Host 插件装载契约 H2/H2b）** — 真机安装暴露「Plugin Manager active 但路由不存在」，根因是 Host 半端 ESM 导出形态与 `apply` 返回值违反 cordis 插件契约；本版补 §0 v6 记录、§13.5 发布前自检项与 docs/install.md 的验证方式修正。**冻结表不动**。
+> 状态：**v7（v6 + 真机缺陷驱动增量）** — 用户真机反馈 5 项缺陷（terminal 记录不可见/界面抖动/标题半截命令/输出不含输入/收起时序/终端 tab 仍显示 composer），Lead 裁决 v6→v7；Host 由 T31、Client 由 T32 实现。本版新增 `Run.inputs`/`Run.notice`/`outputMode:'meta-only'`/`PollResult.diagnostics`、终端发现三级链路（修订 §4.2 语义 5：agent 缺失不再删 Run）、§11 冻结表 v7 增补与 §12.11 三条新裁决。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -34,6 +34,7 @@
 | v4.1 | 2026-10-26 | T6 集成审计落字（仅文档）：①H1 保底规则（单 Run 元信息截断 ≤4 KiB + `metaTruncated`；Tier2 至少保留 1 条 Run；`nextCursors` 只前移实际交付字节）；②M1 裁决「在对话中定位 / 在终端中打开（仅终端）」本期不做（§12.8）；③M2 实现约束「预算调度与选择集必须是同一集合」；④LOW L1–L5 已知差异表（§12.10）。 |
 | v5 | 2026-10-26 | H1/M2 实现对齐（backend `4bc721e`）：§11.1 冻结表增补 4 个 additive 导出（`pickFallbackRun`/`runOutputTextBytes`/`trimRunOutput`/`splitDeltaAtBytes`）与 store 侧 additive 导出/方法（`META_MAX_BYTES`/`truncateMetaText`/`serializeRun`/`frameSelection`/`selectForFrame`/`commitCursorsFromFrame`）；`boundFrameDetailed` 补可选第 3 参 `{preferRunId}`；§4.3 对齐部分交付后缀回退、`bounded.nextCursors` 唯一提交来源、`dropStreak` 保底、`planReads` 公平分配。 |
 | v6 | 2026-10-26 | Host 插件装载契约（H2/H2b，真机故障驱动）：ESM **只许具名导出 `name/inject/apply`，禁 `export default`**；`apply` **必须返回 `undefined`**（返回对象 → cordis `Invalid effect` → effects 回滚 → active 但路由不存在）；装配失败必须 `logger.error` + **rethrow**；§13.5 新增发布前自检项；docs/install.md 验证方式修正（无 cookie 裸 curl 不能判路由）。**冻结表未改动**。 |
+| v7 | 2026-10-26 | 真机缺陷驱动增量（Lead 裁决；T31 Host / T32 Client 实现）：`Run.inputs?`（terminal 输入采集）、`Run.notice?`、`Run.outputMode:'meta-only'`、`PollResult.diagnostics`（每帧必带）；终端发现**三级链路**（terminals.list → terminalController.list(sessionId) → tools/execute 旁路事件）；修订 §4.2 语义 5「agent 缺失不再删 Run」；§11 冻结表 v7 增补（T31/T32 交接后核对）；§12.11 三条新裁决；ui-spec 升 v5（标题首行/输入块/倒计时时序/抖动约束/composer 隐藏）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -105,6 +106,59 @@
 | 隔离复现（cordis 4.0.5） | `TypeError: Invalid effect` + `route registered:false` | 确认 `apply` 返回对象是 H2b 的直接根因 |
 
 代码位置与修复：`lib/index.js`（H2 修复 commit `32bbaf4`；H2b 修复 commit `d51ea5f`），入口注释已写明上述契约。发布前自检见 §13.5；安装侧验证方式见 `docs/install.md` §3.1 V5。
+
+### v7 真机缺陷驱动增量（2026-10-26，Lead 裁决；T31 Host / T32 Client）
+
+> 触发方：用户真机反馈 5 项缺陷（① terminal 记录恒 0 条 / ② 界面每帧抖动 / ③ 标题只见半截命令 + 输出不含输入 / ④ 收起时序错误 / ⑤ 终端 tab 仍显示 composer）。
+> 实现者：Host = T31（`lib/index.js`/`lib/host/**`），Client = T32（`lib/client.js`）。**本节所有字段/导出以实现为准**，T31/T32 交接后逐条核对（见 §11 增补标注）。
+
+#### 7.1 新数据模型字段（全部可选/后向兼容；旧客户端忽略即无影响）
+
+| 字段 | 类型 | 适用 | 规则 |
+|---|---|---|---|
+| `Run.inputs?` | `string[]` | **仅 terminal** | 初始为 terminal 名称（`terminal_open` 的 name / snapshot.name），随后追加捕获的 `terminal_send` 文本；**保留最后 20 条、单条 ≤2 KiB、合计 ≤8 KiB**，超出丢最旧。bash/job **不新增**该字段（Client 从 `run.command` 推导输入块） |
+| `Run.notice?` | `{ code: NoticeCode; message: string }` | 全部来源（当前仅 terminal 使用） | 降级提示；`NoticeCode = 'terminal-no-agent' \| 'terminal-read-failed' \| 'terminal-controller-unavailable'`（可扩展，Client 未知 code 按通用提示渲染）。**v7 实现口径**：实际只产出 `terminal-no-agent` / `terminal-read-failed`；`terminal-controller-unavailable` 为**保留值**（`sidebarTerminals` 默认关闭时不产生；开启且 controller 缺失时原因写在 `diagnostics.terminals.reason`）。UI 在输入块**上方**显示一行次要色提示，不阻断阅读 |
+| `Run.outputMode` | 新值 `'meta-only'` | terminal | **v7 定义**：无 live Agent、**读不到连续实时输出**；但**可能有 tier3 事件片段输出**（`terminal_open.motd` / `terminal_send.viewport` / `terminal_read.text` 追加进 `output`）——这些片段**非实时全量**，UI/校验必须标注来源与「片段」语义，**不得**据此判定为实时流完整。UI 显示输入块 + notice + 片段/空输出文案 |
+| `PollResult.diagnostics` | object（**每帧必带**） | 全部帧 | `{ rootSessionId: string, agentFound: boolean, agentCount: number, scopes: number, terminals: { candidates: number, source: 'terminals'\|'sidebar'\|'events'\|'none', reason?: string } }`；`'sidebar'` 仅当显式开启 terminalController（默认关）时出现；体积小、必须发送（旧客户端忽略）。这是下一轮真机定位的唯一证据来源 |
+
+#### 7.2 终端发现链路（v7 纠偏版；替换 §5.2 terminal 行的「发现」列，其余列语义不变）
+
+> **FACT（scout T30 + Lead 裁决）**：`ctx.terminals`（agent PTY，owner = Agent 对象）与 `terminalController`（**侧栏/浏览器终端**注册表，sessionId 键）**互不相通**。`terminalController.list(sessionId)` **不是** `terminal_open`（agent PTY 工具）可见性的修复依据，不能把两者混排。
+
+| 级 | 数据源 | 默认 | 命中行为 | 失败/降级 |
+|---|---|---|---|---|
+| 1（主） | `ctx.terminals.list(agent)` | **开** | agent PTY 正常登记，`outputMode:'live'`，可读连续输出 | 异常/无 Agent → 降级到级 3（或配置开启时级 2），reason 写进 `diagnostics.terminals.reason` |
+| 2（可选，**非默认**） | `ctx.terminalController.list(sessionId)` | **关**（config 开关缺省 `false`） | 仅在显式开启时登记 Run，来源**仅在 `diagnostics.terminals.source:'sidebar'` 可辨**；**Run 级不区分**（本期裁决：不新增 `Run.source`，UI 不需区分），但不得与 agent PTY 混排混淆 | 服务/方法不存在或抛错 → 级 3；reason 进 diagnostics |
+| 3（默认有效兜底） | `tools/execute` 旁路事件：`terminal_open` / `terminal_send` / `terminal_read` / `terminal_close` / `terminal_kill` | **开** | `terminal_open` 登记「仅元信息」Run（`source:'events'`）；`terminal_send` 追加 `inputs`；`terminal_read`/`terminal_send` 结果里的 `viewport`/`text` 可作为输出**片段**（见下）；`terminal_close`/`terminal_kill` 标终态（**不是删除**） | 无任何事件 → `diagnostics.terminals.source='none'`（此时「终端 0 条」有证据可查） |
+
+**Tier3 输出语义（v7 新增，必须写清）**：
+
+- 无 Agent 时，`terminal_open.motd`、`terminal_send` 的 `result.value.viewport` 与 `terminal_read` 的 `result.value.text` 是**唯一可得的真实终端文本**，可追加为 Run 输出（标来源 `tool-fragment` / 截断），作为 `meta-only` 列的补偿路径。
+- 其语义是「**模型读写时看到的片段**」：**非连续、可能重复/跳跃、不是实时全量**；UI 必须标注来源，验收**不得**按「实时全量输出」判定。连续实时输出仍以 agent PTY `live` 为准。
+- **行边界统一裁定**：事件片段（tier3）与真终端输出（tier1）混用同一 Run 时，行边界由 `terminal-window.mjs::composeTextAppend` 统一裁定（`continuesLine` 决定是否补换行），避免拼接处多/少换行——这是唯一的行边界规则来源（v7）。**合成前导分隔符不计入 terminal 行坐标**：片段（tier3）之后 tier1 真终端接管的首帧会插入一个合成分隔 `\n`，该字节**不计入** `totalLines/lineBegin/lineEnd`（因此 `lineEnd-lineBegin` = 真页行数，而 `text.split('\n').length` = 真页行数+1）；纯片段帧坐标一致。
+
+waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只记录、不改 `exec`。
+
+#### 7.3 契约修订点
+
+1. **§4.2 语义 5 的适用面**：**agent 缺失不再触发 terminal Run 的 `removed`**（旧实现 `collectTerminalRuns` 的 noAgent 分支直接删 Run 是缺陷 ① 根因）。`removed` 只由：`terminal_close`/`terminal_kill`、会话结束、终态保留窗口过期（`store.prune`：`completedLimit`/`completedRetainMs`）产生。
+2. **新字段加入帧预算**：`inputs`/`notice`/`diagnostics`（以及 tier3 文本片段）计入 Tier2 整帧 JSON 体积；H1 保底规则不变（至少 1 条 Run 交付）。
+3. **历史 terminal 不可回读**（v7 纠偏）：`ctx.terminals` 是进程内、owner-对象身份注册表，owner 卸载即清理；`terminalController.attach` 需要 Remote invocation，Host 插件不可用。→ **验收口径：terminal 可见性只对「部署后新发生」的 `terminal_*` 判定，历史/已卸载 owner 的 pty 一律不算缺陷。**
+4. **显示名来源**（v7）：DSH `Agent` 无 `name` 字段（inspect `Agent { id }`），显示名按 §5.1 的四级链取；**rootAgent 缺失时也必须能列出队友**（用任一 live agent 调 `agentTeams.listMembers`，API 只要求 exact live member）。
+
+#### 7.4 §12 新裁决（详见 §12.11）
+
+1. `terminal_open` 记录**必须可见**（不可静默 0 条，必须有 diagnostics/notice 可查）。
+2. **输入必须与输出同面板可见**：输出区顶部新增输入块（bash/job = 完整 `command`；terminal = name + `inputs`），空输出也要显示。
+3. **终端 tab 激活时隐藏会话输入框（composer）**：优先官方能力；否则按 scout 方案 A 在 `el.closest('[data-conversation-content]')` 上 set/remove `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，无 body 兜底）；失败必须**静默降级**、绝不影响其它 tab，卸载幂等恢复。
+
+#### 7.5 §11 冻结表增补（v7，已按 T31/T32 实现核对）
+
+**Host 新增纯模块 `terminal-events.mjs`（10 项导出，已列入 §11.1）**：`TERMINAL_INPUT_LIMITS`、`TERMINAL_NOTICE_MESSAGES`、`noticeFor`、`appendTerminalInput`、`terminalToolCall`、`parseTerminalOpenResult`、`parseTerminalSessionStatus`、`parseTerminalCloseResult`、`parseTerminalListResult`、`normalizeControllerTerminal`；`store.mjs` 新增 `normalizeNotice`（§11.1.1）。
+
+**Client `__internals` 新增 3 键（共 41 键，已列入 §11.2）**：`collapseVisual(state, now)`、`firstCommandLine(command, maxLen)`、`applyComposerHidden(node, visible)`。
+
+> `capture-terminals.mjs` 的新导出（`discoverTerminalCandidates` / `createTerminalEventCapture` 等）依赖 `ctx`，属集成模块，不进纯函数冻结表（由 `tests/host/*` 集成用例覆盖）。
 
 ---
 
@@ -374,6 +428,24 @@ interface PollResult {
   availability: Availability
   truncated: boolean                // 命中帧预算，client 应立即用 nextCursors 续读
   nextCursors: Record<string, RunCursor>
+  diagnostics: PollDiagnostics      // v7：每帧必带（体积小；旧客户端忽略）
+}
+
+// v7
+interface PollDiagnostics {
+  rootSessionId: string
+  agentFound: boolean               // ctx.agents.get(sessionId) 是否拿到 live Agent
+  agentCount: number                // 可见会话树中的 agent 数
+  scopes: number                    // 可见会话作用域数（sessions.length）
+  terminals: {
+    candidates: number              // 本轮候选 terminal Run 数
+    source: 'terminals' | 'sidebar' | 'events' | 'none'  // 实际命中的发现级别
+    // 'terminals' = ctx.terminals (agent PTY，主链路)
+    // 'sidebar'   = terminalController（侧栏/浏览器终端注册表，**默认关闭**，需 config 开关；开启时 Run 必须标侧栏来源）
+    // 'events'    = tools/execute 旁路事件（agent 缺失时的有效兜底）
+    // 'none'      = 全部不可用
+    reason?: string                 // 降级原因（无则缺省）
+  }
 }
 ```
 
@@ -383,12 +455,14 @@ interface PollResult {
 2. `output.*.chunks[].text` 是**新增的连续文本**（bash/job = 字节增量；terminal = 行增量），client 按到达顺序 append；每列本地保留 `scrollbackLines`(600) 行，超出丢头并记 `droppedLines`。
 3. 游标规则按来源分开（§5.2），**不得混用**：job 是绝对字节 `next`；terminal 是 `totalLines` 行基线；bash tee 是字节偏移。
 4. `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick 最多 3 次，之后等下一轮）。
-5. **`removed` 语义（v3 定案，消除 v2 自相矛盾）**：
+5. **`removed` 语义（v3 定案；v7 修订适用面）**：
    - `removed` = **服务端已从注册表移除**的 runId（来源：终态 Run 超出 `completedLimit`(50) 条或 `completedRetainMs`(300000ms) 保留窗口 → `store.prune()`；或会话结束/来源关闭）。**Client 收到后立即删除本地 `runs`/`columns`/`droppedLines`/游标**（以 §11.2 为准），**不做 5 分钟延时**，也不再进入「已完成」区展示。
+   - **v7 修订**：**agent 缺失/解析失败不再触发 terminal Run 的 `removed`**（旧实现 noAgent 分支直接删 Run 是缺陷 ① 根因）；terminal 只在 `terminal_close`/`terminal_kill`、会话结束、保留窗口过期时移除（见 §7.2/§7.3）。
    - `completedRetainMs` **不用于** `removed`；它只用于 Client 的**本地兜底淘汰** `pruneRuns()`：对「服务端仍保留、且已终态」的 Run，超过 300000ms 或条数超过常量 `MAX_RETAINED_COMPLETED`(200) 时本地删除（用于长时间无帧 / 内存保护）。两者不冲突：收到 `removed` 优先立即删。
    - 服务端保留窗口参数：`completedLimit`=50 条、`completedRetainMs`=300000ms（`retainCompletedMs`，`store.prune` 的实现）。
 6. `revision <= 本地已应用 revision` 的帧直接丢弃（乱序/重试）。
-7. `run.outputMode === 'final-only'` 的 Run 在终态前**没有输出块**；UI 在输出区显示「仅终态」占位（§12.7）。
+7. `run.outputMode === 'final-only'` 的 Run 在终态前**没有输出块**；UI 在输出区显示「仅终态」占位（§12.7）。`outputMode === 'meta-only'`（v7，仅 terminal）表示有元信息但读不到输出：UI 必须显示输入块 + `notice`（若有）+ 空输出文案，**不得**当作错误吞掉。
+8. `diagnostics`（v7）每帧必带且**不得省略**（旧客户端忽略）；它是终端三级发现链路的唯一可观测证据（`agentFound`/`terminals.source`/`reason`），排障时先看它。
 
 #### `panel.kill`
 
@@ -469,7 +543,9 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 ```ts
 type RunKind = 'bash' | 'job' | 'terminal'
 type RunStatus = 'running' | 'completed' | 'failed' | 'killed'
-type OutputMode = 'live' | 'final-only'   // final-only = 前台 bash（无过程输出，F17）
+type OutputMode = 'live' | 'final-only' | 'meta-only'
+// final-only = 前台 bash（无过程输出，F17）
+// meta-only  = v7：有元信息但读不到输出（仅 terminal；agent 缺失/读取失败），UI 显示输入块+notice+空输出
 type AgentRole = 'lead' | 'subagent' | 'teammate' | 'unknown'
 type Accent = 'none' | 'subagent' | 'teammate'
 
@@ -541,6 +617,9 @@ interface Run {
   signal?: string | null
   detail?: string            // 失败原因 / kill 原因 / 'final-only'
   metaTruncated?: boolean    // H1：command/cwd/detail/title 任一被截断到 ≤4096B 时为 true
+  inputs?: string[]          // v7：仅 terminal。初始 name + 捕获的 terminal_send 文本；
+                             //     最后 20 条 / 单条 ≤2KiB / 合计 ≤8KiB，超出丢最旧。bash/job 不新增
+  notice?: RunNotice         // v7：降级提示（当前仅 terminal 使用），UI 在输入块上方以次要色显示
   handle: RunHandle
   stoppable: boolean
   totals: { stdout?: number; stderr?: number; job?: number; terminal?: number }
@@ -553,6 +632,21 @@ interface Run {
   lossy: boolean
   truncated: boolean
 }
+
+// v7
+type NoticeCode = 'terminal-no-agent' | 'terminal-read-failed' | 'terminal-controller-unavailable'
+interface RunNotice {
+  code: NoticeCode
+  message: string            // 给用户看的一行原因（中文或英文，UI 直接渲染）
+}
+
+// v7：displayName / AgentRef.name 的来源链（FACT：DSH Agent 没有 name 字段，inspect `Agent { id }`）
+//   1) ctx.sessionTitle.get(session)?.title
+//   2) ctx.sessions.get(sessionId) 的标题
+//   3) Team member name / subagent label（team/subagent 目录）
+//   4) 兜底「当前会话」
+// 不得把 sessionId 长串作为显示名；空值 UI 显示「—」。
+// 另：rootAgent 缺失时也必须能列出队友——用任一 live agent 调 agentTeams.listMembers（API 只要求 exact live member）。
 
 type SourceState =
   | { available: true }
@@ -573,7 +667,7 @@ interface Availability {
 |---|---|---|---|---|
 | **bash 前台** | `tools/execute` waterfall 记录 `{callId,name,arguments,agent?}` → Run 立即以 `status:'running'` 出现，`outputMode:'final-only'`（F21；waterfall 必须 `next()`） | **best-effort tee**：`bashCapture=true` 时尝试装饰 `ctx.shell.execute` 拿到返回的 `ShellExecution`，按其 `observed.stdout.readFrom(cursor)` 增量；成功 → 该 Run 升级 `outputMode:'live'`，`availability.bashLive.available=true`；失败 → 只保留 final-only，`availability.bashLive={available:false,reason:'no-shell-handle',code:'error'}`（F17：服务是一个上下文一个实现，第三方通常拿不到，属预期降级） | `tools/result`（emit，deep-frozen，不污染链）或 `tools/post-execute`（waterfall）的 `ToolExecutionResult`：提取 `content` 中 `type:'text'` 块（无则 `value` 的 JSON 摘要，≤32 KiB）→ 一次性作为 `stdout` 块，`detail:'final-only'`（F22/F23） | `ShellExecution.kill()`（仅 tee 成功时）；否则 `run-not-stoppable` |
 | **job** | 每个可见会话 `ctx.jobs.list(sessionId)`，按 jobId 去重合并（F16） | `ctx.jobs.readAt(jobId, cursor, ownerSessionId)`；`next` 不透明游标写回；`lossy` 透传；`from` 在 chunk 中间会重发整 chunk → 按 `chunk.at + 已知长度` 去重（F16/scout §11.4） | `status` 终态 + `detail`/`progress`；`output.total` 作 totals | `ctx.jobs.kill(jobId, ownerSessionId, 'cancelled by the user')` |
-| **terminal** | 对可见会话逐个 `ctx.terminals.list(agent)`（owner 是 **Agent**，先 `ctx.agents.get(sessionId)`，F18/F20） | 每轮 `read(agent, id, { offset:0, count:max(k,1) })`，`k = totalLines_new - cursor_prev`：**k > 0** → 尾页增量 + 尾重叠去重；**k === 0** → 正常「空闲探尾」（PTY 可能用 `\r` 重写当前行）：不追加、**不标 lossy**、基线不变；**k < 0** → scrollback 裁剪/回退：`lossy:true` + 重置基线并给当前尾页。历史阅读靠本地缓冲 + 手动上翻 `offset += count`（服务端只给增量） | `status.kind==='exited'` → exitCode 0 ? completed : failed（signal 记 detail） | `ctx.terminals.kill(agent, id, 'cancelled by the user')` |
+| **terminal** | **v7 发现链路（纠偏版，详见 §7.2）**：① `ctx.terminals.list(agent)`（agent PTY，主）；② `ctx.terminalController.list(sessionId)`（**侧栏/浏览器终端，默认关闭**、开启时标 `source:'sidebar'`，与 agent PTY 不混排）；③ `tools/execute` 旁路事件（**默认有效兜底**）。**agent 缺失不删 Run**（meta-only + notice；tier3 片段可作补偿输出） | 每轮 `read(agent, id, { offset:0, count:max(k,1) })`，`k = totalLines_new - cursor_prev`：**k > 0** → 尾页增量 + 尾重叠去重；**k === 0** → 正常「空闲探尾」（PTY 可能用 `\r` 重写当前行）：不追加、**不标 lossy**、基线不变；**k < 0** → scrollback 裁剪/回退：`lossy:true` + 重置基线并给当前尾页。历史阅读靠本地缓冲 + 手动上翻 `offset += count`（服务端只给增量）。**合成分隔符不计入 terminal 行坐标**（tier3→tier1 接管首帧会在 `text` 前插入合成 `\n`，不计入 `totalLines/lineBegin/lineEnd`；`lineEnd-lineBegin` = 真页行数，`text.split('\n').length` = 真页行数+1；纯片段帧一致）。无 Agent 时读不到连续输出 → `outputMode:'meta-only'` + `notice` + tier3 片段 | `status.kind==='exited'` → exitCode 0 ? completed : failed（signal 记 detail） | `ctx.terminals.kill(agent, id, 'cancelled by the user')`（无 Agent 时不可停止） |
 
 归属与树：
 
@@ -748,7 +842,9 @@ interface ViewState {
 | `terminals` 缺失 | 不采集 | `availability.terminals=false` | 「终端」chip 置灰 |
 | `shell` 缺失 / tee 失败 | **预期降级**（F17） | 不 tee | `availability.bashLive={available:false, reason:'no-shell-handle'}`；`availability.bash` 仍 available（final-only 可用） | 前台 bash 列显示「仅终态」徽标；不影响列出现 |
 | `subagents`/`agentTeams` 缺失或被拒 | 树发现失败 | 只返回 root | `availability.tree=false`；`sessions=[root]` | 会话范围只剩当前会话 + 提示「无法发现子会话」 |
-| root Agent 不在 live registry | `ctx.agents.get(sessionId)` 空 | **v4：返回降级帧（`ok:true`，不报错）**：`sessions` 仅 root、`availability.tree.available=false`（reason 记「session has no live agent」）、`runs:[]`；terminals/jobs 聚合自然为空 | 降级帧 | 面板显示空态/降级提示「该会话已不在活动注册表」；不弹错误、不重试风暴 |
+| root Agent 不在 live registry | `ctx.agents.get(sessionId)` 空 | **v4：返回降级帧（`ok:true`，不报错）**：`sessions` 仅 root、`availability.tree.available=false`（reason 记「session has no live agent」）、`runs:[]`；**v7：terminal 不再因此消失**——走 §7.2 级 2/3 仍可登记 Run（`meta-only` + `notice.code:'terminal-no-agent'`），`diagnostics.agentFound=false` 可查 | 降级帧 + diagnostics | 面板显示降级提示；terminal 记录仍可见（输入块 + notice + 空输出） |
+| terminal 发现降级（无 Agent / 侧栏未开启 / 无事件） | `diagnostics.terminals.source` = `events`/`sidebar`/`none`，`reason` 非空 | 按 §7.2 降级：级 2（默认关）开启时 → 侧栏来源标记；级 3 → 仍登记 Run（仅元信息 + tier3 片段）；全失败 → `source:'none'`（计数 0 但可诊断） | `PollResult.diagnostics` 每帧必带 | 面板：terminal Run 带 notice 行（次要色、不阻断阅读）；「终端 0 条」时可看 diagnostics 定位 |
+| 隐藏 composer 失败（v7/T32 #5） | 官方能力/注入 CSS 均不可用或选择器不匹配 | 静默降级（不抛错、不改 DOM 结构、幂等清理） | — | 终端 tab 仍可用，只是 composer 未隐藏；其它 tab 不受影响 |
 | 某会话 terminals/jobs 查询抛错 | 单会话失败 | 跳过该会话 | 该会话标记 reasons（不影响其它） | 该会话条目不显示对应来源 |
 | job 输出窗口淘汰 | `readAt` 返回 `lossy` | 从保留头重发 | 通道 `lossy:true` | 输出插「…（已丢失 N 字节）」，不弹错 |
 | terminal scrollback 裁剪 | `totalLines` 回退 / `truncated:true` | 重置基线并给当前尾页 | `TerminalDelta.lossy:true` | 插「…（较早输出已被终端 scrollback 裁剪）」，不弹错 |
@@ -775,6 +871,7 @@ interface ViewState {
 | `terminalPageLines` | 400 | 1–2000（整数） | 单次 `terminals.read` 的 `count`（`planTerminalRead`） |
 | `initialTailBytes` | 32768 | 0–1048576（整数） | 首见 Run（无游标）时给的尾部字节数（bash tee / job 首读） |
 | `bashCapture` | true | boolean | 是否尝试 shell tee（best-effort；失败只降级，不影响 final-only） |
+| `sidebarTerminals` | **false** | boolean（不做数值夹取） | **v7 新增**：默认 `false` = **不探测 `terminalController`**（侧栏/浏览器终端注册表，与 `ctx.terminals` 的 agent PTY 互不相通）；显式 `true` 才展示侧栏终端，此时 `diagnostics.terminals.source='sidebar'`（不是 `'controller'`）。默认关闭下侧栏终端不进入常规路径 |
 | `scrollbackLines` | 600 | — | **预留**：当前 Host 不消费（Client 使用自身常量 `SCROLLBACK_LINES=600`）；保留供未来 UI 协商，改它不改变当前行为 |
 | `collapseDelayMs` | 10000 | — | **预留**：当前 Host 不消费（Client 使用常量 `COLLAPSE_DELAY_MS=10000`，ui-spec 固定 10s）；保留供测试/未来协商 |
 
@@ -809,10 +906,10 @@ interface ViewState {
 
 ## 11. 可测试性契约（tester 直接照此写用例）
 
-### 11.1 Host 纯模块导出 **冻结表**（v3 冻结 + v5 增补，改动需 Lead 批准）
+### 11.1 Host 纯模块导出 **冻结表**（v3 冻结 + v5 增补 + v7 增补，改动需 Lead 批准）
 
-> 冻结范围：`lib/host/{classify,tree,status,cursors,frame,terminal-window}.mjs`（纯逻辑、无 DSH/React 依赖，`node:test` 直接 `import`）；**v5 增补**：`frame.mjs` 的 H1/M2 4 个 additive 导出（Lead 批准）。
-> 不冻结：`panel.mjs` / `route.mjs`（集成）、`capture-*.mjs`（依赖 ctx）——由 `scripts/smoke-host.mjs` 与 `tests/host/{panel,assembly}.test.mjs` 覆盖；`store.mjs` 的 additive 导出与实例方法见 §11.1.1（v5 起冻结）。
+> 冻结范围：`lib/host/{classify,tree,status,cursors,frame,terminal-window,terminal-events}.mjs`（纯逻辑、无 DSH/React 依赖，`node:test` 直接 `import`）；**v5 增补**：`frame.mjs` 的 H1/M2 4 个 additive 导出（Lead 批准）；**v7 增补**：新模块 `terminal-events.mjs`（终端事件旁路纯函数，见下表末段）。
+> 不冻结：`panel.mjs` / `route.mjs`（集成）、`capture-*.mjs`（依赖 ctx，含 `capture-terminals.mjs` 的 `discoverTerminalCandidates`/`createTerminalEventCapture`/`collectTerminalRuns`/`killTerminalRun`）——由 `scripts/smoke-host.mjs` 与 `tests/host/{panel,assembly}.test.mjs` 覆盖；`store.mjs` 的 additive 导出与实例方法见 §11.1.1（v5 起冻结，v7 增补 `normalizeNotice`）。
 > 本表已与 `lib/host/**` 工作树实际 `export` 逐条核对（2026-10-26，含 `4bc721e`；脚本核 missing=0）；tester 按「模块 → 导出名」对齐导出类用例。
 
 | 模块 | 导出名 | 签名 / 返回 | 说明 |
@@ -834,6 +931,7 @@ interface ViewState {
 | | `isTerminalStatus` | `(status: string) => boolean` | `completed\|failed\|killed` |
 | | `mapToolResultStatus` | `(v: { isError: boolean; error?: { message?: string; info?: { code?: string } } }) => RunStatus` | final-only 终态：成功→completed；code 含 abort/cancel→killed；否则 failed |
 | `cursors.mjs` | `sliceFromBytes` | `(text: string, byteOffset: number) => string` | 按 UTF-8 字节偏移切片（不切半码点） |
+| *（v7 增补）* | `headSliceByBytes` | `(text: string, maxBytes: number) => string` | 按 UTF-8 字节取头部、不切半码点（v7：事件片段合成/截断用） |
 | | `tailBytes` | `(text: string, maxBytes: number) => { text: string; droppedBytes: number }` | 取尾部字节窗口 |
 | | `mergeChannel` | `(prevCursor: number, read: { text?: string; nextOffset?: number; lossy?: boolean }, at?: number) => { chunks: object[]; nextCursor: number; lossy: boolean; gapBefore: boolean }` | bash/stderr 字节增量 |
 | | `trimChunksFrom` | `(chunks: object[], from: number) => object[]` | 按 `byteStart` 去重（防 chunk 内重复） |
@@ -860,10 +958,21 @@ interface ViewState {
 | | `tailLinesOf` | `(text: string, lines?: number /* 默认 32 */) => string` | 取尾部 N 行 |
 | | `dedupeTailOverlap` | `(prevTail: string, incoming: string, overlapLines?: number /* 默认 32 */) => { text: string; overlapLines: number }` | 行尾重叠去重；**必须保留行内 `\n`**（HIGH 缺陷回归点） |
 | | `planTerminalRead` | `(prev: { totalLines: number } \| null, totalLines: number, pageLines?: number /* 默认 400 */) => { offset: number; count: number; mode: 'initial'\|'delta'\|'probe'\|'reset' }` | 行读取计划（`offset` = 距最新行数） |
-| | `computeTerminalDelta` | `(prev: { totalLines: number; tail: string }, page: { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean }, overlapLines?: number /* 默认 32 */) => { delta: TerminalDelta; nextBaseline: { totalLines: number; tail: string } }` | k=totalLines 差；**k<0 → lossy + 重置基线**；**k===0 → 正常探尾，不标 lossy、基线不变**（v4）；k>0 → 尾页 + 尾重叠去重 |
+| | `computeTerminalDelta` | `(prev: { totalLines: number; tail: string }, page: { text: string; totalLines: number; lineBegin: number; lineEnd: number; truncated: boolean }, overlapLines?: number /* 默认 32 */) => { delta: TerminalDelta; nextBaseline: { totalLines: number; tail: string } }` | k=totalLines 差；**k<0 → lossy + 重置基线**；**k===0 → 正常探尾，不标 lossy、基线不变**（v4）；k>0 → 尾页 + 尾重叠去重（调用 `composeTextAppend`） |
+| | `composeTextAppend`（v7） | `(state: { tail?: string; hasPrevious?: boolean; endsWithNewline?: boolean }, incoming: string, overlapLines?: number /* 默认 32 */) => { text: string; overlapLines: number; continuesLine: boolean }` | **v7：唯一行边界规则来源**；`computeTerminalDelta` 的 k>0 分支已改为调用它（行为不变）；tier3 事件片段与真终端输出混用时行边界由此函数统一裁定。返回：`continuesLine=true` = 续写上一行（不补换行）；否则若上一段不以换行结尾，`text` 前会补一个合成 `\n` |
 | | `applyTerminalRead` | `(window: { totalLines: number; tail: string }, page: object, overlapLines?: number) => { delta: TerminalDelta; window: object }` | compute + 推进窗口 |
 | | `windowCursor` | `(window: { totalLines?: number }) => number` | 行基线游标 |
 | | `TERMINAL_PAGE_LINES` / `MAX_DELTA_LINES` / `DEFAULT_OVERLAP_LINES` | `400` / `10000` / `32` | 常量（冻结值） |
+| **`terminal-events.mjs`**（v7 新增模块） | `TERMINAL_INPUT_LIMITS` | `{ maxEntries: 20, maxEntryBytes: 2048, maxTotalBytes: 8192 }`（冻结对象） | `Run.inputs` 边界（契约 §7.1） |
+| | `TERMINAL_NOTICE_MESSAGES` | `Record<NoticeCode, string>`（冻结对象） | 三种 notice code 的默认文案 |
+| | `noticeFor` | `(code: string, message?: string) => { code: string; message: string }` | 构造 `Run.notice`；无 message 用默认文案 |
+| | `appendTerminalInput` | `(inputs: string[] \| undefined, entry: string, limits?: typeof TERMINAL_INPUT_LIMITS) => { inputs: string[]; dropped: number }` | 追加一条输入并执行 20 条/2 KiB/8 KiB 裁剪（丢最旧）；UTF-8 安全 |
+| | `terminalToolCall` | `(name: string, args: unknown) => { kind: 'open'\|'send'\|'read'\|'close'\|'signal'\|'list'; terminalId?: string; text?: string; type?: string; name?: string } \| null` | 从工具名+参数识别 terminal_* 调用（第三级发现） |
+| | `parseTerminalOpenResult` | `(text: string) => { terminalId: string; name?: string; type?: string } \| null` | 解析 `terminal_open` 结果文本 |
+| | `parseTerminalSessionStatus` | `(text: string) => { kind: 'running' } \| { kind: 'exited'; exitCode: number \| null; signal: string \| null } \| null` | 解析结果里的会话状态 |
+| | `parseTerminalCloseResult` | `(text: string) => { terminalId: string; outcome: 'closed'\|'already-closing' } \| null` | 解析 `terminal_close` 结果 |
+| | `parseTerminalListResult` | `(text: string) => Array<{ terminalId: string; name?: string; type?: string; pid?: number; status?: object }>` | 解析 `terminal_list` 多行结果 |
+| | `normalizeControllerTerminal` | `(raw: object, fallbackSessionId?: string) => { terminalId: string; name?: string; type?: string; pid?: number; status?: object } \| null` | 归一化 `terminalController.list(sessionId)` 的条目 |
 
 #### 11.1.1 `store.mjs` additive 导出与 Store 实例方法（v5 增补，H1/M2 修复；改动需 Lead 批准）
 
@@ -880,6 +989,19 @@ interface ViewState {
 | Store 实例方法（新增，M2） | `frameSelection` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string }) => object[]` | **唯一选择集**（focus → running startedAt 升序前 N → completed）；`planReads` 必须用同一集合 |
 | Store 实例方法（新增，M2） | `selectForFrame` | 同 `frameSelection`（**别名**） | 语义等价，供调用方按可读性选用 |
 | Store 实例方法（新增，H1） | `commitCursorsFromFrame` | `(nextCursors?: Record<string, object>) => void` | 只按**本帧实际交付**的 `nextCursors` 提交游标（Tier2/3 裁剪后唯一可信来源） |
+| 模块导出（v7 新增纯函数） | `normalizeNotice` | `(notice: unknown) => { code: string; message: string } \| undefined` | 归一化 `Run.notice`（只保留 code/message 字符串；code 空 → undefined） |
+
+#### 11.1.2 `capture-terminals.mjs` v7 新签名（集成模块，**不冻结**但列全供集成用例对齐）
+
+> 依赖 `ctx`（terminals/agents/terminalController/store），不进纯函数冻结表；签名以 `lib/host/capture-terminals.mjs` 为准。
+
+| 导出名 | 签名 / 返回 | 说明 |
+|---|---|---|
+| `terminalRunId` | `(terminalId: string) => string` | runId 构造（既有） |
+| `discoverTerminalCandidates` | `(options: object) => Promise<{ candidates: object[]; readAgents: Map<string, object>; source: 'terminals'\|'sidebar'\|'events'\|'none'; reason?: string; degradedSessions: string[]; sidebarEnabled: boolean }>` | v7 发现：agent PTY →（`sidebarTerminals:true` 时）侧栏终端 → events；默认 sidebar 关闭 |
+| `collectTerminalRuns` | `(options: object) => { available: boolean; reason?: string; readFailures: number; candidates: number }` | 登记/更新 terminal Run（meta-only、inputs、tier3 片段） |
+| `createTerminalEventCapture` | `(options: { store: any; now?: () => number; logger?: any }) => { noteToolCall: Function; noteToolResult: Function; dispose: Function }` | `tools/execute`/`tools/result` 旁路：terminal_* 事件 → Run/inputs/片段/终态 |
+| `killTerminalRun` | `(options: { terminals: any; run: object; agent: any; logger?: any }) => Promise<'requested'\|'already-finished'\|'unsupported'>` | 用户停止；无 live Agent 时 `unsupported` |
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
@@ -926,6 +1048,9 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | 跟随 | `createFollowState()` | → `FollowState` |
 | | `onScrollFollow(state, m: { scrollTop:number; scrollHeight:number; clientHeight:number })` | → `FollowState`（距底 ≤4px 恢复） |
 | | `onOutputFollow(state, lines: number)` | → `FollowState`（累积 pendingNewLines） |
+| (v7) | `collapseVisual(state, now)` | → `{ expanded:boolean; visible:boolean; countdown:boolean; remaining:number; progress:number; pinned:boolean; paused:boolean; armed:boolean }`（#4 收敛：`expanded===false` 一律 `countdown:false/progress:0`，pinned 永不倒计时） |
+| (v7) | `firstCommandLine(command, maxLen?)` | → `string`（首条非空行、折叠空白、超长 `…`、多行末尾 ` +N 行`；默认 maxLen=120） |
+| (v7) | `applyComposerHidden(node, visible)` | → `boolean`（在 `[data-conversation-content]` 节点上 set/remove `data-tp-composer-hidden`；幂等、失败静默返回 false 不抛错） |
 | 自动收起 | `createCollapseState()` | → `CollapseState` |
 | | `armCollapse(state, now)` | → `CollapseState` |
 | | `pauseCollapse(state)` | → `CollapseState` |
@@ -1042,6 +1167,21 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | L4 | `formatCountdown` 纯函数硬编码 `'s 后收起'` | **不修（可接受）** | 纯函数契约输出（tester 依赖）；UI 实际使用 locale `collapse.in`，非 UI 缺陷 |
 | L5 | T5 测试桩 `ctx.on` 曾返回 `{dispose}` 对象（真实 cordis 为函数） | **已修** | `tests/helpers/fakes.mjs` 已修正；仅测试夹具，不影响生产 |
 
+### 12.11 真机缺陷驱动裁决（v7，2026-10-26 Lead 裁决）
+
+> 触发：用户真机 5 项反馈（terminal 不可见 / 抖动 / 标题半截命令 / 输出不含输入 / 收起时序 / composer）。实现：T31（Host）、T32（Client）。
+
+| # | 裁决 | 理由（真机证据） | 验收载体 |
+|---|---|---|---|
+| R1 | **`terminal_open` 记录必须可见，不可静默 0 条** | 真机轮次里有 `terminal_open`（pty-4/pty-5）/`terminal_send`/`terminal_read`，面板却恒显示「终端 0」；旧实现 agent 缺失时 noAgent 分支直接删 Run、且只标 denied 不报错 | §7.2 三级发现链路 + `Run.notice` + `PollResult.diagnostics`；tester 用例（T34）：agent 缺失仍出 Run、source/reason 正确、close 才结束 |
+| R2 | **输入必须与输出同面板可见** | 只显示输出无法判断执行了什么（多行/heredoc 更甚），是 #3 的一半 | Client 输出区顶部输入块：bash/job 完整 `command`（每行 `$ ` 前缀）；terminal 名称 + `inputs`（`› ` 前缀）；空输出仍显示输入块 + `output.empty`；ui-spec v5 §2.1/§9 可验收条目 |
+| R3 | **终端 tab 激活时隐藏会话输入框（composer）** | 终端版面需要垂直空间，插件只读、composer 在该 tab 无意义（#5） | 优先官方能力；否则按 scout 方案 A：在面板根 `el.closest('[data-conversation-content]')` 上 set/remove **`data-tp-composer-hidden`**，CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，无 body 兜底）；失败**静默降级**、不影响其它 tab，卸载幂等恢复 |
+| R4 | **`terminalController` = 侧栏/浏览器终端注册表，与 `ctx.terminals`（agent PTY）互不相通**；`terminalController.list(sessionId)` **不能**作为 `terminal_open` 可见性的修复依据 | scout T30 FACT：两者是不同注册表/不同 owner 身份；把侧栏终端混进 agent PTY 列表会误导用户 | v7 起 **`sidebarTerminals` 默认 false**（§9）：默认不探测 controller；显式 true 才展示，`diagnostics.terminals.source:'sidebar'` 且 Run 必须标侧栏来源，**不得与 agent PTY 混排混淆**（§7.2） |
+| R5 | **历史/已卸载 owner 的 terminal 输出不可回读** | `ctx.terminals` 是进程内 owner-对象身份注册表，owner 卸载即清理；`terminalController.attach` 需 Remote invocation，Host 插件不可用 | 验收口径：terminal 可见性只对**部署后新发生**的 `terminal_*` 判定；历史 pty 一律不计缺陷 |
+| R6 | **tier3 文本片段语义**：`terminal_send` 的 `result.value.viewport` / `terminal_read` 的 `result.value.text` / `terminal_open.motd` 是唯一可得的真实终端文本，可追加为 Run 输出（标来源/截断） | 无 Agent 时没有连续流；这是 `meta-only` 列的补偿路径 | 语义 = 「模型读写时看到的片段」：**非连续、可能重复/跳跃、不是实时全量**；UI 标注来源，验收不得按实时全量判定（§7.1/§7.2） |
+| R7 | **`notice.code` 生产集合**：实际只产出 `terminal-no-agent` / `terminal-read-failed`；`terminal-controller-unavailable` 为**保留值** | 默认 `sidebarTerminals=false` 下不会产生 controller 相关 notice；开启且 controller 缺失时原因写在 `diagnostics.terminals.reason` | §7.1 NoticeCode 说明 + Host 用例断言实际 code 集合 |
+| R8 | **侧栏终端本期不做 UI 区分** | 默认关闭因而不进入常规路径；开启时也只有 `diagnostics.terminals.source='sidebar'` 一个标识 | 仅在契约/diagnostics 层记录；UI 不做侧栏专属视觉（避免与 agent PTY 混淆即可） |
+
 ---
 
 ## 13. 下游交接清单
@@ -1057,6 +1197,13 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v3 预算三级**（§4.3）：Tier1 `buildPollFrame`（输出文本口径）→ Tier2 `boundFrameDetailed`（整帧 JSON 兜底，被丢 Run 退回 `store.restore` 且不提交游标）→ Tier3 `route.boundResponseValue`（262144 硬上限，被丢 Run 游标回退上一轮）。**`truncated` 与 `nextCursors` 必须满足 §4.3 不变量**。
 - [ ] **LOW 回归**：`boundFrame` 的 1 字节边界（`≤ limit` 放行 / `> limit` 裁剪；`headBytes` 不切半码点）→ `tests/host/frame.test.mjs`。
 - [ ] 跨会话聚合冒烟（U6）；任一来源异常降级不 500。
+- [ ] **v7 terminal 三级发现**（§7.2）：①`terminals.list(agent)` → ②`terminalController.list(sessionId)`（免 Agent）→ ③`tools/execute` 事件（`terminal_open`/`terminal_send`/`terminal_close`）；每级失败只降级并记 `diagnostics.terminals.reason`，**不得抛异常**。
+- [ ] **v7 agent 缺失不删 Run**：noAgent 不再 `store.remove` terminal Run；改为 `outputMode:'meta-only'` + `notice.code:'terminal-no-agent'`。
+- [ ] **v7 `Run.inputs` 采集**：仅 terminal；初始 name + `terminal_send` 文本；最后 20 条、单条 ≤2 KiB、合计 ≤8 KiB，超出丢最旧；bash/job 不加字段。
+- [ ] **v7 `Run.notice` + `outputMode:'meta-only'`**：notice code 至少三种；meta-only 与 live/final-only 并列。
+- [ ] **v7 `PollResult.diagnostics` 每帧必带**（`rootSessionId/agentFound/agentCount/scopes/terminals{candidates,source,reason?}`），不许省略；`source` 取值 `'terminals'|'sidebar'|'events'|'none'`（**不是 'controller'**）；新字段计入 Tier2 帧体积。
+- [ ] **v7 `sidebarTerminals` 配置**（§9）：默认 `false` 不探测 `terminalController`；显式 `true` 才展示侧栏终端、`diagnostics.terminals.source='sidebar'`，且不得与 agent PTY 混排。
+- [ ] **v7 tier3 片段输出**：`terminal_open.motd` / `terminal_send.viewport` / `terminal_read.text` 可追加为 Run 输出，标注「片段、非实时全量」；`notice.code` 实际只产出 `terminal-no-agent` / `terminal-read-failed`（`terminal-controller-unavailable` 保留）。
 
 ### 13.2 frontend（T4）v2/v3 增补
 
@@ -1069,6 +1216,11 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] `__internals` 必须与 §11.2 冻结表**逐键一致**（增删改需 Lead 批准）。
 - [ ] **v3 `removed` 语义**：收到即删 run/column/droppedLines/游标，不做延时；`completedRetainMs` 只用于 `pruneRuns` 本地兜底。
 - [ ] **HIGH 回归**：`mergeRun` 终态单调（终态后收到 running/旧帧不得回退）→ `tests/client/merge-poll.test.mjs`。
+- [ ] **v7 标题首行**：列头/已完成行的命令只显示**第一条非空行**（折叠空白、超长截断 `…`、多行附 ` +N 行`），完整命令保留在 `title` 属性与输出面板；新增纯函数 `firstCommandLine(command, maxLen)` 并由 `__internals` 暴露。
+- [ ] **v7 输入块**：输出区顶部渲染输入（bash/job 完整 `command` 每行 `$ `；terminal `$ name` + `inputs` 每行 `› `）+ 分隔线 + 输出；空输出仍显示输入块 + `output.empty`；`notice` 在输入块上方（仅 terminal）以次要色显示。
+- [ ] **v7 收起时序**：终态后先保持展开 + 倒计时（10s），到点才 `expanded:false` 且 `deadline:null`；折叠后不再渲染倒计时/进度条；新增纯函数 `collapseVisual(state, now)` 返回 `{visible,countdown,progress}` 供 tester 断言；hover/focus 暂停语义不变。
+- [ ] **v7 抖动约束**：入场动画只在首次挂载播放（`data-fresh` 一次性）；工具栏单行不换行 + 计数 tabular-nums/固定 min-width；面板填满高度、运行列固定区 + 已完成区 `flex:1 1 auto; min-height:0; overflow:auto`；倒计时徽标固定占位；跟随滚动只用容器 `scrollTop=scrollHeight`（禁 `scrollIntoView`）。
+- [ ] **v7 composer 隐藏**：终端 tab 激活且生效时隐藏会话输入框；用 `useEffect` 做副作用、幂等、卸载恢复；失败静默降级、绝不影响其它 tab；DOM 副作用抽成 `applyComposerHidden(node, visible)`（操作 `[data-conversation-content]` 的 `data-tp-composer-hidden`，找不到锚点返回 false 不抛错）。
 
 ### 13.3 tester（T5）v2/v3 增补
 
@@ -1079,6 +1231,8 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - **v3 removed 用例**：`removed` 立即删除；同一 run 随后到达不影响其它 run；`pruneRuns` 独立于 `removed`。
 - **HIGH/LOW 回归**：`terminal-window` 换行、`mergeRun` 终态单调、`boundFrame` 边界。
 - 装配测试：断言 client `apply` 注入的 `<style>` 在 dispose 后被移除；断言 `label()` 返回「终端」。
+- **v7 Host 用例**：agent 缺失 + `terminalController.list` 返回 2 条 → 2 个 terminal Run（`meta-only` + notice，且**不被删**）；仅 `terminal_open` 事件 → 仍登记（source='events'）；controller 缺失/抛错 → 静默降级 + reason；`terminal_send` → inputs 追加与 20 条/2 KiB/8 KiB 上限；`terminal_close` → 终态（不是静默删除）；`diagnostics` 形状与取值；带 inputs/notice 的大帧仍满足 Tier1/Tier2 + ≥1 Run 保底。
+- **v7 Client 用例**：`firstCommandLine`（单行/多行/前导空行/超长 `…` + ` +N 行`/非字符串）；`collapseVisual`（仅展开态可见倒计时、到点 expanded=false+deadline=null、paused 冻结、pinned 不 arm、10s 前不折叠）；输入块渲染（`$ ` / `› ` 前缀、空输出仍有输入块、notice 行存在）。
 
 ### 13.4 audit（T6）对照点
 

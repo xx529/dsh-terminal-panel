@@ -197,3 +197,33 @@ node tests/e2e/smoke.mjs
 | §4 会话范围默认「当前会话」 | v4 正文与 A 板/B 板冲突，取「全部」（contract §12.3） | F4-3：默认全部；常量一处可改 |
 | §2.1 Bash 实时增量 | 平台限制：前台 bash 过程输出不可得（Lead 2026-10-26） | D5-1 标 manual+限制：终态 + 「仅终态」徽标 |
 | 插件 icon/locale 显示元数据 | v1 未交付（不在写作用域；T7 补） | manual：Plugin Manager 显示包名兜底；T7 后复验中文名/图标 |
+
+## 11. ui-spec v5 A1–A13 映射（真机反馈修复，contract v7）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A1 | 标题首行 | auto | `client/v7.test.mjs::A1 firstCommandLine…`（单行/多行/前导空行/空白折叠/超长…+N 行/非字符串） | 纯函数 **PASS**；视觉核对 manual |
+| A2 | 输入块（`$ `/`› ` + 分隔线） | auto（源码级静态）+ manual | `client/v7.test.mjs::A2/A3/A4 输入块（源码级静态）`：`'$ '`/`'› '` 前缀、`inputs[0]`=name、index1 起去重、分隔线 | 结构 **PASS**；渲染级 **Unverified**（InputBlock 未进冻结表，无法浅渲染） |
+| A3 | 空输出仍有输入块 + 空文案 | auto（静态）+ manual | 同上（OutputArea 无条件渲染 InputBlock + `output.empty/metaOnly/finalOnly` 文案） | 结构 **PASS**；视觉 **Unverified** |
+| A4 | notice 一行次要色提示 | auto（静态）+ manual | 同上 + `host/terminals-v7.test.mjs`（`notice.code:'terminal-no-agent'` 产出） | 数据/结构 **PASS**；视觉 **Unverified** |
+| A5 | 收起时序（先展开倒计时→到点折叠） | auto | `client/v7.test.mjs::A5 collapseVisual…`（10s 前不折叠、到点 `expanded:false,deadline:null`、折叠后无倒计时/进度条） | **PASS**；视觉 manual |
+| A6 | 暂停语义（hover/focus、失焦重计、pinned 不 arm） | auto | `client/v7.test.mjs::A6 collapseVisual：paused 冻结、pinned 不 arm` + `collapse.test.mjs` | **PASS**；交互 manual |
+| A7 | 高度稳定/工具栏单行 | auto（静态）+ manual | `client/v7.test.mjs::A7 抖动约束`（toolbar nowrap/46px、`.tp-done-list` flex、countdown 固定宽） | 结构 **PASS**；目视 **Unverified** |
+| A8 | 动画不重放/reduced-motion | auto（静态）+ manual | `client/v7.test.mjs::A8`（仅 `[data-tp-fresh]` 上 animation、基础样式无 animation、reduced-motion） | 结构 **PASS**；目视 **Unverified** |
+| A9 | 跟随滚动仅容器 scrollTop | auto（静态）+ manual | `client/v7.test.mjs::A9`（无 `scrollIntoView`、`scrollTop=scrollHeight`） | 结构 **PASS**；页面不滚 **Unverified** |
+| A10 | composer 隐藏/恢复/降级 | auto（纯函数+静态）+ manual | `client/v7.test.mjs::A10 applyComposerHidden…`（set/remove/幂等/null/抛错降级）+ 静态（`closest('[data-conversation-content]')`、无 `document.body` 写） | 纯函数 **PASS**；真实隐藏/切 tab **Unverified** |
+| A11 | terminal 可见性（不得静默 0 条） | auto（host 集成）+ manual | `host/terminals-v7.test.mjs`：默认 sidebar 关闭不误用、开启后 2 条、agent 缺失 2 条 meta-only 不删、events 兜底登记、diagnostics 每帧必带 | 集成 **PASS**；真机部署后新 `terminal_*` **Unverified** |
+| A12 | 显示名（不暴露 sessionId，空 `—`；rootAgent 缺失仍列队友） | auto（集成）+ manual | `host/terminals-v7.test.mjs`（diagnostics agentFound/agentCount、team anchor、display name 兜底）；见 §12 D1 | 集成 **PASS**；真机名 **Unverified** |
+| A13 | meta-only 不误导 | auto（静态/数据）+ manual | `client/v7.test.mjs::A13`（`metaOnly` 不用运行中脉冲、`tp-status-meta`、`output.tier3` 标注）+ host notice 断言 | 结构 **PASS**；视觉 **Unverified** |
+
+## 12. v7 真机 5 项缺陷 ↔ 用例映射
+
+| 缺陷 | 症状 | 对应用例 | 仍只能真机验证 |
+|---|---|---|---|
+| D1 terminal 记录不可见 | 真机跑过 `terminal_open` 但面板 0 条 | `host/terminals-v7.test.mjs`（sidebar 默认关/开启映射、agent 缺失不删、events 兜底、diagnostics 形状）；A11 | 部署后新 `terminal_open` 是否真机可见（历史 pty 不可回读，不计缺陷） |
+| D2 界面抖动 | 轮询重建整页跳动 | `client/v7.test.mjs` A7/A8（工具栏 nowrap、动画仅 fresh、done-list flex、countdown 固定宽）+ `defaults/layout` 排序稳定性 | 真机目视：新 Run/终态/行数变化外框高度、composer 不被顶动 |
+| D3 标题半截命令 | 多行命令只显示半截 | `client/v7.test.mjs` A1（首条非空行、` +N 行`、超长 `…`、完整原文 title） | 列头/行视觉截断观感 |
+| D4 输出不含输入 | 输出区看不到输入内容 | `client/v7.test.mjs` A2/A3/A4（输入块结构/notice/空输出）+ mergePoll inputs 归一化 | 输入块实际排版、`›` 行可读性 |
+| D5 收起时序 | 结束即收起/收起后仍倒计时 | `client/v7.test.mjs` A5/A6（10s 前不折叠、到点清 deadline、折叠后无倒计时、paused/pinned） | 倒计时视觉与进度条 |
+| D6 composer 未隐藏 | 终端 tab 仍显示输入框 | `client/v7.test.mjs` A10（`applyComposerHidden` 纯函数 + 静态注入/CSS/无 body 写） | 终端 tab 激活隐藏、切走恢复、失败静默且不影响其它 tab |
+

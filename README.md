@@ -5,23 +5,40 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 代码侧已交付（2026-10-26）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：`255` 条单测、`91/91` mock 冒烟、`npm run verify` exit 0。
+**状态：v0.1.0 代码侧已交付（2026-10-26）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：**296 tests / 296 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T34 最终报告）。**v7 真机反馈 5 项已代码侧修复**（见下方「真机反馈修复（v7）」），真机复验待做。
 
 | 门 | 结果 | 命令 |
 |---|---|---|
 | 语法自检 | 通过 | `npm run check` |
-| 单测 | **255 tests / 255 pass / 0 fail / 0 skip / 0 todo**（20 个 `*.test.mjs`，`node:test`，零依赖） | `npm test` |
+| 单测 | **296 tests / 296 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；tester T34 最终报告） | `npm test` |
 | Host mock 冒烟 | **PASS — 91/91 checks passed**，exit 0 | `npm run smoke` |
 | 一键全验 | check → test → smoke，**exit 0** | `npm run verify` |
-| 契约 | **v5**（v3 冻结表 + H1/M2 实现对齐） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
+| 契约 | **v7**（v3 冻结表 + v5 增补 + v7 真机缺陷增量） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
 
 > T6 集成审计（commit `ad39516`）：**无 CRITICAL**；HIGH **H1**（Tier2 单 Run livelock）与 MEDIUM **M2**（选择集错配）已由 backend 修复（commit `4bc721e`，含 R1/R2 回归），M1（菜单两项）已裁决不做；LOW L1–L5 见 contract §12.10。
+
+## 真机反馈修复（v7，代码侧已修 / 真机复验待做）
+
+2026-10-26 用户真机反馈驱动（5 项缺陷 + scout 补充 2 项显示/状态），Lead 裁决契约 v6→v7（Host = T31，Client = T32）：
+
+| # | 缺陷 | 修复（代码侧） |
+|---|---|---|
+| 1 | 轮次里有 `terminal_open/send/read`，面板「终端」恒 0 条 | Host **发现链路（v7 纠偏）**：`terminals.list(agent)`（agent PTY）→ `tools/execute` 事件兜底（默认有效）；`terminalController`（侧栏终端注册表）默认关闭、开启时标 `sidebar` 且不与 agent PTY 混排；agent 缺失不再删 Run（`meta-only` + `notice` + tier3 片段），`PollResult.diagnostics` 每帧可查 |
+| 2 | 界面每 250ms 跳动 | 入场动画只首挂载播放；工具栏单行不换行；面板填满高度（运行列固定 + 已完成区自适应滚动）；倒计时徽标固定占位；跟随滚动只用容器 `scrollTop`（禁 `scrollIntoView`） |
+| 3 | 标题只看得到半截命令 | 标题只显示命令**第一条非空行**（折叠空白、超长 `…`、多行 ` +N 行`），完整命令在 `title` 与输出面板 |
+| 3b | 输出区看不到输入 | 输出区顶部新增**输入块**：bash/job 完整 `command`（`$ ` 前缀）；terminal `$ name` + `inputs`（`› ` 前缀）+ 分隔线；空输出仍显示；`notice` 提示行在输入块上方 |
+| 4 | 命令结束立刻收起、收起后还在倒计时 | 终态后**先展开 + 倒计时 10s，到点才折叠**（`expanded:false` 且 `deadline:null`），折叠后不再显示倒计时/进度条；新增 `collapseVisual` 纯函数 |
+| 5 | 终端 tab 仍显示会话输入框 | 终端 tab 激活时隐藏 composer（优先官方能力；否则 `[data-conversation-content]` + `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`，找不到锚点静默降级）；失败不影响其它 tab，卸载幂等恢复 |
+| 6 | 行内 agent/会话名显示 sessionId 长串 | 显示名按 `sessionTitle → sessions 标题 → team/subagent 名称 → 「当前会话」` 取，空值 `—`；rootAgent 缺失仍能列出队友（`Agent` 无 `name` 字段） |
+| 7 | meta-only 列误导（看起来在运行） | 必须显示 `notice` 降级提示、**不显示「运行中」动画**；tier3 片段标注「非实时全量」 |
+
+> 说明：以上为**代码侧修复**；真机复验清单见 `docs/design/ui-spec.md` v5 §9 的 A1–A13（A7–A13 含 manual 项），**不得据此宣称已真机验收**。
 
 ## 快速验证
 
 ```bash
 npm run check     # node --check lib/index.js && node --check lib/client.js
-npm test          # node --test "tests/**/*.test.mjs"（255 用例）
+npm test          # node --test "tests/**/*.test.mjs"（296 用例）
 npm run smoke     # node scripts/smoke-host.mjs（91 checks，exit 0）
 # 或一次跑完：
 npm run verify
@@ -42,12 +59,12 @@ npm run verify
 
 ## 链接
 
-- 设计规格（v4，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
+- 设计规格（v5，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
-- 架构与接口契约（v6）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
+- 架构与接口契约（v7）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
-- 测试报告（T5 基线 236，当前累计 255）：[`docs/testing/report.md`](docs/testing/report.md)
+- 测试报告（T5 基线 236；v7 回归后 296，tester T34 最终报告）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
@@ -55,7 +72,7 @@ npm run verify
 - 许可证：[`LICENSE`](LICENSE)（MIT）
 - 项目级 agent 指引见 [`AGENTS.md`](AGENTS.md)；一键发布+安装见 [`deploy/publish-and-install.sh`](deploy/publish-and-install.sh)。
 
-## 功能一览（验收基线 = ui-spec v4 + 本 README「已知限制」）
+## 功能一览（验收基线 = ui-spec v5 + 本 README「已知限制」）
 
 | 能力 | 说明 |
 |---|---|
@@ -68,7 +85,7 @@ npm run verify
 | 筛选 | 类型 chips（带全局计数）+ 会话范围多选（默认全部会话）+ 命令/输出即时搜索 |
 | 最大化 | `⤢` 打开 980×600 只读弹窗（Esc/✕ 关闭，可停止/复制全部） |
 | 只读 | 不注入键盘、不 `startSend`；唯一的写操作是「停止」（两击确认） |
-| 数据源 | 后台任务 `ctx.jobs`（增量）、持久终端 `ctx.terminals.read`（行增量）、前台 bash `tools/execute` + `tools/result`（终态） |
+| 数据源 | 后台任务 `ctx.jobs`（增量）、持久终端**三级发现**（`terminals.list` → `terminalController.list` → `tools/execute` 事件；无 Agent 时 meta-only + notice）、前台 bash `tools/execute` + `tools/result`（终态） |
 
 ## 已知限制（已裁决，见 contract §12 + v4/v5 附录）
 
@@ -81,6 +98,9 @@ npm run verify
 7. **`⋯` 菜单只有 3 项**（复制命令 / 复制输出 / 固定展开）：ui-spec §3.7 的「在对话中定位」「在终端中打开（仅终端）」**本期不做**（Run 契约无 `turn/message` 引用；插件不接管宿主终端面板），替代见 contract §12.8。已知差异 L1–L5 见 contract §12.10。
 8. **非 live root 会话降级**：传入的 sessionId 无 live Agent 时返回**降级帧**（ok:true、树仅 root、`availability.tree.available=false`、空 runs），不是 `session-not-found`（仅语法非法才 coded 错误；contract v4 附录）。
 9. **terminal 的 `truncated`** 表示「该会话输出未完整覆盖（scrollback 裁剪或窗口未及最旧行）」，**不是分页未取完**；client 不得据此循环翻页（contract v4 附录）。
+10. **terminal 无 Agent 时只能看元信息（v7）**：默认走 `tools/execute` 事件兜底（`terminalController` 是侧栏终端注册表、默认关闭），`outputMode:'meta-only'` + `notice`，读不到连续实时输出（tier3 片段非全量）、停止不可用；但**不再静默 0 条**（诊断字段见 contract §7.2）。
+11. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则 `[data-conversation-content]` 标记 + CSS（找不到锚点才 body 兜底/静默降级）；宿主 DOM 变更可能失效（其它 tab 不受影响）。
+12. **v7 真机 5 项修复仅代码侧完成，真机复验待做**；ui-spec v5 §9 的 A1–A13 为验收条目（部分 manual）。terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史/已卸载 owner 的 pty 不可回读，不计缺陷）。
 
 ## 目录结构
 
@@ -92,21 +112,22 @@ npm run verify
 ├── icon.svg                     # Plugin Manager 图标（原创终端字形，16/24px 可读）
 ├── locale/{zh,en}.json          # Plugin Manager 展示元数据（meta.title / meta.description）
 ├── docs/
-│   ├── design/ui-spec.md        # v4 设计规格（验收基线）
-│   ├── architecture/contract.md # 双端契约（v5）
+│   ├── design/ui-spec.md        # v5 设计规格（验收基线 + A1–A11）
+│   ├── architecture/contract.md # 双端契约（v7）
 │   ├── research/dsh-plugin-apis.md # scout T1 取证（契约事实来源）
+│   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/acceptance-matrix.md # 验收矩阵
-│   ├── testing/report.md        # 测试报告（T5 基线 236 用例 + 覆盖说明）
+│   ├── testing/report.md        # 测试报告（T5 基线 236 → v7 296，覆盖说明）
 │   ├── testing/integration-report.md # 集成报告（T6，已完成 ad39516）
 │   ├── retro/2026-10-26-bash-live-source.md # T4 触发复盘（closed）
 │   └── install.md               # 安装 / 生效 / 验证 / 回滚（证据版）
 ├── lib/
 │   ├── index.js                 # [backend] Host 半端入口（ESM）
-│   ├── host/*.mjs               # [backend] 采集器 + 纯逻辑（12 个模块，node:test 直接 import）
-│   ├── client.js                # [frontend] Client 半端（单文件 classic script，≈2,795 行）
+│   ├── host/*.mjs               # [backend] 采集器 + 纯逻辑（13 个模块，node:test 直接 import）
+│   ├── client.js                # [frontend] Client 半端（单文件 classic script，≈3,000 行）
 │   └── client/**                # [frontend] 可选纯函数（不 import React）
 ├── scripts/smoke-host.mjs       # [backend] mock ctx 冒烟（91 checks）
-└── tests/                       # [tester] 20 个 *.test.mjs（host / client / e2e）+ helpers
+└── tests/                       # [tester] *.test.mjs（host / client / e2e）+ helpers
 ```
 
 ## 许可

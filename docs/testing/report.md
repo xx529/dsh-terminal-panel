@@ -168,3 +168,35 @@ tests/
   3. `node --check lib/**/*.js`、`node --check lib/host/*.mjs`；确认 `scripts/smoke-host.mjs` exit 0（backend 自报 65/65，tester 未参与其断言设计）；
   4. 检查 `lib/index.js` 的 `apply` 在宿主缺 `webServer/connection` 时的激活/回滚行为（矩阵 §9 manual）；
   5. 校验 §6 C5（inject 保留 props）在真实渲染器中确由 owner props 覆盖。
+
+## 11. v7 增量测试基线（T34，contract v7 / ui-spec v5）
+
+> 触发：真机 5 项缺陷驱动 Host（T31）/Client（T32）修复；本任务补独立测试与验收映射。
+> 基线：`255 tests / 91 smoke`（v5）→ 本任务 **296 tests / 296 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 11.1 新增用例（41 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/host/terminal-events.test.mjs` | 14 | v7 纯模块 `terminal-events.mjs` 全部 10 导出：inputs 20 条/2KiB/8KiB 精确边界、CRLF、terminal_* 工具识别、open/send/read/close/list 解析、`normalizeControllerTerminal`（state exited/failed 不得 running、title→name、shell.name→type） |
+| `tests/host/terminals-v7.test.mjs` | 11 | 三级发现（sidebar 默认关/开启映射、agent 缺失不删 Run、events 兜底）、diagnostics 形状与取值、事件片段行边界/逐帧坐标、片段+tier1 接管不粘连、inputs 集成边界、close 终态非删除、帧预算 Tier2 保底、waterfall 原样放行 |
+| `tests/client/v7.test.mjs` | 12 | `firstCommandLine` 全边界、`collapseVisual`（A5/A6）、`applyComposerHidden`（幂等/null 安全/静默降级）、mergePoll 对 `inputs/notice/outputMode:'meta-only'` 归一化、抖动/动画/滚动/输入块/meta-only 的静态断言（A7/A8/A9/A2/A3/A4/A10/A13） |
+| `tests/host/terminal-window.test.mjs`（追加） | 4 | v7 `composeTextAppend`：无前文/已换行/未换行/尾重叠/行内续写/空行语义 |
+
+### 11.2 本轮发现并已修的缺陷
+
+| 编号 | 级别 | 缺陷 | 发现/复现 | 修复 | 回归 |
+|---|---|---|---|---|---|
+| H-1 | HIGH | 事件片段（tier3）输出**丢行边界**：多段 `viewport/read` 被粘成一行（`Welcome\na\nbcd`），meta-only 终端文本可读性/复制内容错误 | T34 写用例时探针发现；`capture-terminals.mjs::appendEventOutput` 直接 append 去重后文本、无前导换行 | backend `composeTextAppend`（`terminal-window.mjs`）+ `synthNewlines/synthEndsWithNewline`；tier1 接管时补一次前导 `\n`；新增纯函数已进 contract §11.1 | `host/terminals-v7.test.mjs::事件片段：send.viewport/read.text 进 output（…）` 正式断言 `Welcome\na\nb\nc\nd`；逐帧坐标 `totalLines===nextCursor===lineEnd`、`lineEnd-lineBegin===text.split('\n').length`；`composeTextAppend` 单元 4 例 |
+
+> 测试基础设施修正（非 lib 缺陷）：`tests/helpers/fakes.mjs` 的假 `terminals.read` 原先按「绝对行号」实现，而 DSH 契约 F18 是「offset=距最新行数」；已按契约修正（start/end 计算 + lineBegin=offset），旧用例回归全绿。这是本任务发现并修正的**测试桩与契约不一致**，不修改 `lib/**`。
+
+### 11.3 覆盖映射位置
+
+- ui-spec v5 A1–A13 ↔ 用例：`docs/testing/acceptance-matrix.md` **§11**。
+- 真机 5 项缺陷 ↔ 用例：同文件 **§12**。
+
+### 11.4 仍未覆盖（只能真机验证）
+
+`A2/A3/A4/A13` 的**渲染级**（输入块/notice 实际排版）、`A7/A8` 真机目视抖动、`A9` 页面不滚动、`A10` composer 实际隐藏/切 tab 恢复、`A11` 真机 `terminal_open` 可见性（部署后新事件）、`A12` 真机显示名、`A5` 视觉效果——共 7 组 manual 项；另有既有 19 项 Unverified（见 `integration-report.md` §10）不变。
+
