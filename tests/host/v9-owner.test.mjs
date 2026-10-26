@@ -11,11 +11,12 @@ const skip = m.missing ? m.reason : false
 
 /** 只认「对象身份」的 terminals 假服务（真实 ctx.terminals 按 Agent 身份校验 owner）。 */
 function makeIdentityTerminals({ ownerAgent, id = 'pty-1', name = 'dev', lines = ['$ ls', 'a b c'] }) {
-  const calls = { list: 0, read: 0 }
+  const calls = { list: 0, read: 0, listOwners: [] }
   return {
     calls,
     list(agent) {
       calls.list += 1
+      calls.listOwners.push(agent?.id)
       return agent === ownerAgent
         ? [{ sessionId: id, name, type: 'zsh', pid: 11, status: { kind: 'running' } }]
         : []
@@ -92,8 +93,11 @@ async function poll(panel, params = {}) {
 
 const terminalOf = (frame, id) => (frame.runs ?? []).find((run) => run.runId === `terminal:${id}`)
 
-/* 1) 树外 owner + 命中 live Agent → meta-only → live、notice 清空、诊断计数 */
-test('A27 树外 owner 命中 live：terminal meta-only→live、notice 清空、tier1Terminals/outOfScope 正确', { skip }, async () => {
+/* 1) v11 改写（原「树外 owner 命中 live 升级」）：树外 owner 不展示/不解析 */
+// 期望变更（已获 Lead 批准）：v11 P0 会话隔离取消 v9「树外 owner 升级 live」。
+// 旧断言：树外 owner 命中 live → meta-only→live + tier1Terminals=1 + terminalScopes=2。
+// 新断言：树外 owner 的 Run 不进入本会话帧；不 list/read 该 owner；droppedForeignRuns>0；removed 为空。
+test('A27(v11) 树外 owner 命中 live 也不展示/不解析：runs 无该 Run、droppedForeignRuns>0、不 list/read', { skip }, async () => {
   const rootAgent = { id: 'root-1' }
   const ownerAgent = { id: 'owner-x' }
   const wrapper = { id: 'owner-x' } // tools/execute 里的包装对象（不同引用）
@@ -107,31 +111,26 @@ test('A27 树外 owner 命中 live：terminal meta-only→live、notice 清空�
   const exec = { callId: 'open-out', name: 'terminal_open', arguments: { name: 'dev', type: 'zsh' }, agent: wrapper }
   await events.open(exec, { sessionId: 'pty-out', name: 'dev', type: 'zsh', motd: 'Welcome\n' })
 
-  // 首帧：事件层先登记 meta-only（owner 树外）
-  let frame = await poll(panel)
-  let run = terminalOf(frame, 'pty-out')
-  // 同一帧 tier1 收敛后应已升级 live（owner 在 store 里被扩进 terminalScopes）
-  assert.equal(run.outputMode, 'live', '树外 owner 命中 live Agent 后必须升级 live')
-  assert.equal(run.notice, undefined, '升级 live 后 notice 必须清空')
-  assert.ok((run.output?.terminal?.text ?? '').includes('a b c'), 'tier1 输出必须进入 Run')
-  assert.equal(frame.diagnostics.terminalOwners.outOfScope, 1, 'owner 必须计入 outOfScope')
-  assert.equal(frame.diagnostics.terminalOwners.inScope, 0)
-  assert.equal(frame.diagnostics.terminalOwners.alive >= 1, true)
-  assert.equal(frame.diagnostics.tier1Terminals, 1)
+  const frame = await poll(panel)
+  assert.equal(terminalOf(frame, 'pty-out'), undefined, 'v11：树外 owner 的 terminal Run 不得出现在本会话帧')
+  assert.ok(frame.diagnostics.droppedForeignRuns >= 1, '被隔离的树外 Run 必须计入 droppedForeignRuns')
+  assert.equal(frame.diagnostics.scopedRuns, 0, '本会话没有自己的 Run')
+  assert.equal(frame.diagnostics.frameSessionId, 'root-1')
+  assert.equal(frame.diagnostics.allowedSessions, 1, 'allowedSessions 只含本会话树')
+  assert.equal(frame.diagnostics.terminalScopes, 1, 'terminalScopes = 会话树（不含树外 owner）')
+  assert.equal(frame.diagnostics.tier1Terminals, 0, 'tier1Terminals 只数本会话 owner')
   assert.equal(frame.diagnostics.metaOnlyTerminals, 0)
-  assert.equal(frame.diagnostics.terminalScopes, 2, 'terminalScopes = 会话树 ∪ 树外 owner')
-  assert.equal(frame.diagnostics.scopes, 1, '会话树本身仍只有 root')
-  assert.equal(frame.diagnostics.agentsService, true)
-  assert.ok(['get', 'get-loose', 'property'].includes(frame.diagnostics.agentsAccess))
-  assert.equal(frame.diagnostics.agentsProbe.getOk, true)
-  assert.equal(frame.diagnostics.agentsProbe.identityOk, true)
-  assert.deepEqual(frame.diagnostics.agentsProbe.sampleIds.sort(), ['owner-x', 'root-1'])
-  assert.equal(frame.diagnostics.ownerIdentityMismatch >= 1, true, '包装对象 → registry 引用收敛应计数')
+  assert.deepEqual(frame.removed, [], '隔离不等于删除（removed 为空）')
+  assert.ok(!terminals.calls.listOwners.includes('owner-x'), '不得对树外 owner 调 terminals.list')
+  assert.equal(terminals.calls.read, 0, '不得对树外 owner 调 terminals.read')
+  assert.ok(panel.store.get('terminal:pty-out') !== undefined, 'Run 仍在全局 store（由 A 自己的 poll 管理）')
   await panel.dispose?.()
 })
 
-/* 2) 树外 owner 无 live Agent → 保持 meta-only + notice，且不被误删 */
-test('A27 树外 owner 未命中 agent：保持 meta-only + notice，Run 不被删除（removed 为空）', { skip }, async () => {
+/* 2) v11 改写（原「树外 owner 未命中 agent 保持 meta-only」）：树外 owner 一律不展示 */
+// 旧断言：可见 meta-only + notice terminal-no-agent。
+// 新断言：不展示（即使无 agent）；不误删；removed 为空；droppedForeignRuns>0。
+test('A27(v11) 树外 owner 无 live agent：不展示、不误删、removed 为空', { skip }, async () => {
   const rootAgent = { id: 'root-1' }
   const wrapper = { id: 'owner-y' }
   const terminals = makeIdentityTerminals({ ownerAgent: { id: 'someone-else' }, id: 'pty-y' })
@@ -145,17 +144,16 @@ test('A27 树外 owner 未命中 agent：保持 meta-only + notice，Run 不被�
   await events.open(exec, { sessionId: 'pty-y', name: 'dev', motd: 'Welcome\n' })
 
   let frame = await poll(panel)
-  let run = terminalOf(frame, 'pty-y')
-  assert.ok(run, '事件层登记的树外 owner Run 必须可见（不得静默 0 条）')
-  assert.equal(run.outputMode, 'meta-only')
-  assert.equal(run.notice?.code, 'terminal-no-agent')
-  assert.equal(frame.diagnostics.terminalOwners.outOfScope, 1)
-  assert.equal(frame.diagnostics.tier1Terminals, 0)
-  assert.equal(frame.diagnostics.metaOnlyTerminals, 1)
-  // 第二帧不得删 Run
+  assert.equal(terminalOf(frame, 'pty-y'), undefined, 'v11：树外 owner 即使无 agent 也不展示')
+  assert.ok(frame.diagnostics.droppedForeignRuns >= 1)
+  assert.deepEqual(frame.removed, [], '隔离不是 remove 条件')
+  assert.ok(panel.store.get('terminal:pty-y') !== undefined, 'Run 必须保留在全局注册表')
+  assert.ok(!terminals.calls.listOwners.includes('owner-y'), '不得对树外 owner 调 terminals.list')
+  // 第二帧仍不得删/展示
   frame = await poll(panel, { cursors: frame.nextCursors })
-  assert.deepEqual(frame.removed, [], 'agent 缺失不是 remove 条件')
-  assert.ok(panel.store.get('terminal:pty-y') !== undefined, 'Run 必须保留在注册表')
+  assert.equal(terminalOf(frame, 'pty-y'), undefined)
+  assert.deepEqual(frame.removed, [])
+  assert.ok(panel.store.get('terminal:pty-y') !== undefined)
   await panel.dispose?.()
 })
 
@@ -212,8 +210,10 @@ test('A28 diagnostics：ctx.get 拿不到 agents 但 ctx.agents 属性可用 →
   await panel.dispose?.()
 })
 
-/* 6) out-of-scope owner 升级 live 后再失联：不得被误删（保留与 removed 断言） */
-test('A27 树外 owner 升级 live 后失联：Run 保留、removed 为空', { skip }, async () => {
+/* 6) v11 改写（原「树外 owner 升级 live 后失联仍保留」）：隔离优先，始终不展示 */
+// 旧断言：先 live、失联后 Run 保留。
+// 新断言：命中 live 也不展示；owner 失联后仍不展示；removed 为空；全局 store 保留由 A 自己管理。
+test('A27(v11) 树外 owner 升级 live 后失联：全程不展示、removed 为空', { skip }, async () => {
   const rootAgent = { id: 'root-1' }
   const ownerAgent = { id: 'owner-z' }
   const wrapper = { id: 'owner-z' }
@@ -228,13 +228,15 @@ test('A27 树外 owner 升级 live 后失联：Run 保留、removed 为空', { s
     { sessionId: 'pty-z', name: 'dev', motd: 'Welcome\n' },
   )
   let frame = await poll(panel)
-  assert.equal(terminalOf(frame, 'pty-z').outputMode, 'live')
+  assert.equal(terminalOf(frame, 'pty-z'), undefined, 'v11：树外 owner 即使能解析 live agent 也不展示')
+  assert.ok(frame.diagnostics.droppedForeignRuns >= 1)
   // owner agent 从 registry 消失（terminals 也不再认它）
   services.agents.get = () => undefined
   services.agents.list = () => []
   frame = await poll(panel, { cursors: frame.nextCursors })
-  assert.deepEqual(frame.removed, [], 'owner 失联不得触发 removed（缓存仍活）')
-  assert.ok(panel.store.get('terminal:pty-z') !== undefined, 'Run 必须保留')
+  assert.equal(terminalOf(frame, 'pty-z'), undefined, 'owner 失联后仍不展示')
+  assert.deepEqual(frame.removed, [], 'owner 失联不得触发 removed（隔离优先）')
+  assert.ok(panel.store.get('terminal:pty-z') !== undefined, 'Run 仍在全局 store')
   await panel.dispose?.()
 })
 
