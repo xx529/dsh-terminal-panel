@@ -227,3 +227,32 @@ tests/
 
 A14 网格换行目视效果、A15 三态卡片/计时器视觉、A16「收起」按钮真实点击、A17 hover/focus 真实暂停（DEF-1 已修，纯函数回归 PASS；真机悬停待验）、A18 切 tab 首屏恢复真实时序、A19 FLIP/fade 观感、A20 首帧 skeleton→数据过渡、A21 缓存未命中/服务端重载后 resync 真机、A22 job-only 无空态闪烁；另既有 19 项 Unverified（`integration-report.md` §10）不变。
 
+## 13. v9 增量测试基线（T46，contract v9 / ui-spec v7）
+
+> 触发：真机反馈（已完成行点不开且仍显示倒计时 / 卡片不铺满 / 状态色不清 / TERM 全部 meta-only / 诊断不足）→ T43 Client v9 / T44 Host v9。
+> 基线：`323 tests / 91 smoke`（v8）→ 本任务 **338 tests / 338 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 13.1 新增用例（15 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/client/v9.test.mjs` | 8 | `group.expandedIds` 默认/跨帧保留（数组拷贝）/removed 裁剪；`setRowExpanded`/`toggleRow` 不依赖 `view.columns`、行头/组头点击接线（静态）；`clearCompleted` 裁剪 expandedIds；已完成行**不渲染** `collapse.in`/`tp-countdown`/`tp-progress`/`column.collapse`（组件级静态，同时确认死 CSS 仍存在但与渲染解耦）；`.tp-cell` 铺满网格（flex-basis/内层 width:100%/等高/窄容器单列/无横向滚动/拖拽经 clamp 280–640）；黄/绿/红色板 + hover/focus 只改颜色类属性（不改 width/padding/height） |
+| `tests/host/v9-owner.test.mjs` | 7 | 树外 owner + live Agent → `meta-only→live`、notice 清空、tier1Terminals/terminalOwners 计数；树外 owner 无 Agent → 保持 meta-only+notice 且不被误删；树内 owner 行为不变；`diagnostics` 必发字段与缺失服务默认值；`agentsAccess:'property'` 路径；owner 升级 live 后失联不误删；`agentsProbe.getOk/identityOk` 语义 |
+
+### 13.2 发现但未修的问题 / 契约不一致（已报 Lead；未改 lib）
+
+| 编号 | 级别 | 问题 | 位置/证据 | 建议 |
+|---|---|---|---|---|
+| V9-C1 | LOW（文档） | contract v9 头部与 §0 写「§11.2 冻结表 v9 增补」，但实现 `__internals` 仍为 **53 键**（v8 数值），v9 未新增纯函数导出；§11.2 表亦无 v9 新增行 | `lib/client.js` 实际 53 键（`tests/client/v9.test.mjs` 断言 53）；`docs/architecture/contract.md:3/39` | architect 二选一：删「v9 增补」表述，或补 v9 新键（如暴露 `gridColumnsFor`/`toggleRow` 纯函数） |
+| V9-C2 | LOW（契约 vs 实现） | contract §9.2 写「每行列数 = 可用宽度按基准宽向下取整（最少 1 列）、基准宽 320–352 自适应」；实现无列数计算函数/无 resize 重算（`gridColumnsFor` 不存在），完全依赖 CSS `.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%)}` 的 flex 换行；基准宽固定 352，未按容器 320–352 自适应 | `lib/client.js:297`、`:2452`；无 `gridColumnsFor`/`ResizeObserver` 列数重算（仅 FLIP 用 ResizeObserver） | 契约按实现收敛（「CSS flex 铺满 + 最小 280」），或 frontend 补 `gridColumnsFor` 供 tester 测边界 |
+| V9-C3 | INFO | v7 死样式/词典（`.tp-countdown`/`collapse.in`/`collapse.*` 状态字段）暂留；v7 用例仍断言 `.tp-countdown` CSS 存在 | `tests/client/v7.test.mjs` 静态断言；已完成行已不渲染（v9 用例区分覆盖） | 保持现状（Lead 已说明），后续统一清理时同步改 v7 断言 |
+
+### 13.3 覆盖映射位置
+
+- ui-spec v7 A23–A28 ↔ 用例：`docs/testing/acceptance-matrix.md` **§14**。
+- 覆盖方式：`mergePoll` 纯 reducer（expandedIds 保留/裁剪）+ 源码级静态断言（已完成行渲染/网格/色板/toggle 接线）+ Host 集成（树外 owner/诊断）；DOM 渲染与真机视觉仍标 Unverified。
+
+### 13.4 仍未覆盖（只能真机/浏览器验证）
+
+A23 行头/组头真实点击与复用 React 复用下的展开状态、A24 视觉上确认无倒计时、A25 明暗主题色板观感、A26 真实 resize 下列数/等宽/无横向滚动、A27 真机树外 owner（队友/subagent）terminal 可达性、A28 真机 Network 的 diagnostics 全字段；另既有 19 项 Unverified（`integration-report.md` §10）不变。
+

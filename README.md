@@ -5,15 +5,15 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 代码侧已交付（2026-10-26）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：**323 tests / 323 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T39 最终报告）。**v7 真机反馈 5 项已代码侧修复**（见下方「真机反馈修复（v7）」），真机复验待做。
+**状态：v0.1.0 代码侧已交付（2026-10-26，v9）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：**338 tests / 338 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T46 最终报告）。**v7 真机反馈 5 项已代码侧修复**（见下方「真机反馈修复（v7）」），真机复验待做。
 
 | 门 | 结果 | 命令 |
 |---|---|---|
 | 语法自检 | 通过 | `npm run check` |
-| 单测 | **323 tests / 323 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；tester T39 最终报告） | `npm test` |
+| 单测 | **338 tests / 338 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；tester T46 最终报告） | `npm test` |
 | Host mock 冒烟 | **PASS — 91/91 checks passed**，exit 0 | `npm run smoke` |
 | 一键全验 | check → test → smoke，**exit 0** | `npm run verify` |
-| 契约 | **v8**（客户端展示层增量；host 协议 v7 不变） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
+| 契约 | **v9**（可达性/视觉 + host terminal owner 解析） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
 
 > T6 集成审计（commit `ad39516`）：**无 CRITICAL**；HIGH **H1**（Tier2 单 Run livelock）与 MEDIUM **M2**（选择集错配）已由 backend 修复（commit `4bc721e`，含 R1/R2 回归），M1（菜单两项）已裁决不做；LOW L1–L5 见 contract §12.10。
 
@@ -48,11 +48,25 @@
 
 > 以上为**代码侧修复**；真机复验清单见 `docs/design/ui-spec.md` v6 §9 A14–A22（均含 manual/Unverified），**不得据此宣称已真机验收**。
 
+## 可达性 / 视觉 v9（真机修复，代码侧已修 / 真机复验待做）
+
+2026-10-26 真机反馈驱动的可达性与视觉修订（契约 v9 / ui-spec v7）：
+
+| # | 变更 | 说明 |
+|---|---|---|
+| 1 | **已完成行独立展开** | 展开由 `view.group.expandedIds` 布尔集合驱动，行头/组头均可点击；已完成行**不再渲染** 10s 倒计时/进度条（样式/词典暂留，测试兼容；修复「点不开 + 仍显示 10s 后收起」） |
+| 2 | **执行区按行铺满** | CSS flex：`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}`，基准 352、拖右缘 280–640、窄容器单列，**无横向滚动**；不计算列数/不做 resize 重算；取代 v8 固定 352 自动换行 |
+| 3 | **状态色板** | 进行中黄、已完成绿、失败红（`--dsw-alias-state-{warn,success,error}-primary`）；hover/focus 不改布局尺寸 |
+| 4 | **树外 owner terminal 可 live** | tier1 Agent 解析范围扩为 `scopes ∪ terminal ownerSessionId`；树外 owner 命中 live 即读实时输出并清 `notice`（未命中仍 meta-only 可见） |
+| 5 | **诊断扩展** | `diagnostics` 增 `agentsService` / `agentsProbe{getOk,sampleIds}` / `terminalOwners{captured,alive,inScope,outOfScope}`，便于真机定位 |
+
+> 以上为**代码侧修复**；真机复验清单见 `docs/design/ui-spec.md` v7 §9 A23–A28（均含 manual/Unverified），**不得据此宣称已真机验收**。
+
 ## 快速验证
 
 ```bash
 npm run check     # node --check lib/index.js && node --check lib/client.js
-npm test          # node --test "tests/**/*.test.mjs"（323 用例）
+npm test          # node --test "tests/**/*.test.mjs"（338 用例）
 npm run smoke     # node scripts/smoke-host.mjs（91 checks，exit 0）
 # 或一次跑完：
 npm run verify
@@ -73,12 +87,12 @@ npm run verify
 
 ## 链接
 
-- 设计规格（v6，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
+- 设计规格（v7，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
-- 架构与接口契约（v8）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
+- 架构与接口契约（v9）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
-- 测试报告（T5 基线 236；v8 回归后 323，tester T39 最终报告）：[`docs/testing/report.md`](docs/testing/report.md)
+- 测试报告（T5 基线 236；v9 回归后 338，tester T46 最终报告）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
@@ -94,7 +108,7 @@ npm run verify
 | 进行中列表 | 每个 Run 一列，横向排列；超出左右滚动（滚动条 + `›` + 剩余数角标） |
 | 列宽 | 默认 352，可拖 280–640，双击右缘复位，按会话记忆 |
 | agent 归属 | 列头 `类型标签 + agent chip`；子代理蓝、队友琥珀、当前会话无竖条 |
-| 已完成 | 32px 紧凑行，分组默认折叠，10s 倒计时自动收起（悬停/聚焦暂停，失焦重新计时） |
+| 已完成 | 32px 紧凑行，分组默认折叠；展开由 `expandedIds` 驱动（无倒计时/进度条，样式暂留测试兼容） |
 | 跟随 | 默认贴底；输出区滚轮只滚自身；上翻暂停并提示「N 条新输出 ↓」，回底自动恢复 |
 | 筛选 | 类型 chips（带全局计数）+ 会话范围多选（默认全部会话）+ 命令/输出即时搜索 |
 | 最大化 | `⤢` 打开 980×600 只读弹窗（Esc/✕ 关闭，可停止/复制全部） |
@@ -115,7 +129,8 @@ npm run verify
 10. **terminal 无 Agent 时只能看元信息（v7）**：默认走 `tools/execute` 事件兜底（`terminalController` 是侧栏终端注册表、默认关闭），`outputMode:'meta-only'` + `notice`，读不到连续实时输出（tier3 片段非全量）、停止不可用；但**不再静默 0 条**（诊断字段见 contract §7.2）。
 11. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则 `[data-conversation-content]` 标记 + CSS（找不到锚点才 body 兜底/静默降级）；宿主 DOM 变更可能失效（其它 tab 不受影响）。
 12. **v7 真机 5 项修复仅代码侧完成，真机复验待做**；ui-spec §9 的 A1–A13 为验收条目（部分 manual）。
-13. **v8 行为变更（不是缺陷）**：横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 10s + 收起按钮）；切 tab 依赖 LRU 4/TTL 30min 会话缓存（第 5 个会话不保证首屏不空）。terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史/已卸载 owner 的 pty 不可回读，不计缺陷）。
+14. **v9 行为变更（不是缺陷）**：已完成行独立展开且无倒计时；执行区按行铺满；状态色黄/绿/红；树外 owner terminal 可升级 live。
+15. **v8 行为变更（不是缺陷）**：横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 10s + 收起按钮）；切 tab 依赖 LRU 4/TTL 30min 会话缓存（第 5 个会话不保证首屏不空）。terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史/已卸载 owner 的 pty 不可回读，不计缺陷）。
 
 ## 目录结构
 
@@ -127,12 +142,12 @@ npm run verify
 ├── icon.svg                     # Plugin Manager 图标（原创终端字形，16/24px 可读）
 ├── locale/{zh,en}.json          # Plugin Manager 展示元数据（meta.title / meta.description）
 ├── docs/
-│   ├── design/ui-spec.md        # v6 设计规格（验收基线 + A1–A20）
-│   ├── architecture/contract.md # 双端契约（v8）
+│   ├── design/ui-spec.md        # v7 设计规格（验收基线 + A1–A28）
+│   ├── architecture/contract.md # 双端契约（v9）
 │   ├── research/dsh-plugin-apis.md # scout T1 取证（契约事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/acceptance-matrix.md # 验收矩阵
-│   ├── testing/report.md        # 测试报告（T5 基线 236 → v8 323，覆盖说明）
+│   ├── testing/report.md        # 测试报告（T5 基线 236 → v9 338，覆盖说明）
 │   ├── testing/integration-report.md # 集成报告（T6，已完成 ad39516）
 │   ├── retro/2026-10-26-bash-live-source.md # T4 触发复盘（closed）
 │   └── install.md               # 安装 / 生效 / 验证 / 回滚（证据版）

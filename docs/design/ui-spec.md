@@ -1,8 +1,16 @@
-# 终端 · DSH 插件 UI/UX 设计规格（v6）
+# 终端 · DSH 插件 UI/UX 设计规格（v7）
 
 > 设计稿：Figma 本地文档 “Untitled” → Page「命令实况 · UI/UX 设计」
 > A `12:2` 主视图 · B `12:240` 会话范围筛选 · C `12:674` 状态与规则 · D `12:1005` Light · E `12:895` 边界状态
-> 状态：**v6（展示层重构，契约 v8 对应）** — v1→v5 已有五轮评审；v6 吸收 2026-10-26 真机反馈（横向列滚动难用 / 终态跳变 / 切 tab 空屏 / 首帧空态闪烁）：网格换行 + 纵向滚动、Run 三态 linger、会话状态缓存、FLIP 补位、首帧 loading。
+> 状态：**v7（可达性/视觉修订，契约 v9 对应）** — v1→v6 已有六轮评审；v7 吸收 2026-10-26 真机反馈（已完成行点不开且仍显示倒计时 / 卡片不铺满 / 状态色不清 / TERM 全部 meta-only）：已完成行独立展开 + 无倒计时、网格按行铺满、黄/绿/红状态色板。
+
+## v7 相对 v6 的变更（第七轮：可达性/视觉，契约 v9 对应）
+
+1. **已完成行展开独立**：展开由 `view.group.expandedIds`（布尔集合）驱动，**不再复用 `column.collapse`**；已完成行**不再渲染** v7/v5 的 10s 倒计时 + 进度条（`collapse.in`/`tp-countdown`/`tp-progress` 不再渲染；样式/词典暂留，测试兼容）——行头/组头都可点击展开收起（契约 §6.9/§12.12；**替换 v5「终态后行内倒计时收起」**）。
+2. **执行区按行铺满**：卡片**按行等宽拉伸铺满**（CSS flex，基准 352、拖右缘 280–640、窄容器单列、无横向滚动；不计算列数）——**替换 v6「固定宽自动换行」**（契约 §9.2）。
+3. **状态色板**：进行中黄 `--dsw-alias-state-warn-primary`、已完成绿 `--dsw-alias-state-success-primary`、失败红 `--dsw-alias-state-error-primary`；hover/focus 只改不透明度/内描边、**不改布局尺寸**（契约 §9.3/§12.12 R13）。
+4. **树外 owner terminal 可 live**：tier1 Agent 解析范围扩为 `scopes ∪ terminal ownerSessionId`，树外 owner 命中 live 即读实时输出并清 `notice`，不再永久 meta-only/黄框（契约 §9.4/§12.12 R14）。
+5. **诊断可见**：`diagnostics` 增 `agentsService` / `agentsProbe` / `terminalOwners`，真机问题可定位（契约 §9.5）。
 
 ## v6 相对 v5 的变更（第六轮：展示层重构，契约 v8 对应）
 
@@ -65,8 +73,10 @@
 
 | 项 | 规格 |
 |---|---|
-| 布局 | 固定宽卡片 **自动换行**（`flex-wrap: wrap`，间距 12）；整体**纵向滚动**（容器 `overflow-y:auto`）；已完成区在下方；窄容器（<360px）卡片收缩单列、**无横向滚动** |
-| 卡片宽 / 高 | 默认 **352**（可拖 280–640，按会话记忆、双击复位）；卡片高 342，列内结构 30/22/264/22 |
+| 布局 | **按行等宽铺满（CSS flex）**：`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}`、`.tp-col{width:100%}`；行内卡片等宽拉伸、换行由容器宽决定（**不计算列数/不做 resize 重算**）；整体纵向滚动（`overflow-y:auto`）；已完成区在下方；窄容器单列、**无横向滚动** |
+| 卡片宽 / 高 | 基准 **352**、最小 **280**、最大 **640**；拖右缘调宽（280–640，写 `--tp-card-w`/`flex-basis`，按会话记忆、双击复位）；卡片高 342，列内结构 30/22/264/22 |
+| 状态色板 | 进行中卡片边框 **黄** `--dsw-alias-state-warn-primary`；已完成行/卡 **绿** `--dsw-alias-state-success-primary`；失败 **红** `--dsw-alias-state-error-primary`；明暗主题可读，禁止硬编码 hex |
+| hover/focus | 只改 `opacity` / `box-shadow(inset)` 内描边，**不改变布局尺寸**（不抖动） |
 | 溢出 | **作废**：横向滑动、横向滚动条、右侧 `›` 按钮与剩余列数角标、底部横向滚动条（v5 条款被取代；契约 §12.12 R9）；列多时换行到下一行，不横向滚 |
 | 面板高度 | `tp-root` 填满可用高度；执行区 + 已完成区随整体纵向滚动；行数增减不改变面板外框、不顶动 composer |
 | 标题行 | `类型标签` + `agent chip` + 弹簧 + `状态` + `耗时` + `停止按钮 16×16`（linger 态额外「收起」按钮） |
@@ -82,9 +92,9 @@
 |---|---|---|
 | `running` | 执行区卡片 | 正常运行卡片（标题/命令/输出/脚注/停止），不显示倒计时 |
 | `linger`（终态后 10s） | 执行区卡片 | 保留卡片 + **倒计时徽标（琥珀点 + `Ns 后移入已完成`，固定占位 min-width 152）+「收起」按钮**；hover/focus 暂停倒计时（移出/失焦后重新计 10s）；`pinned` 不 arm；到点或点「收起」→ completed |
-| `completed` | 已完成分组（执行区下方） | 32px 紧凑行（`chevron` + 类型 + agent + 首行命令 + 状态 + 耗时 + `⋯`），分组默认折叠、整组内滚；失败 1px 红边框 |
+| `completed` | 已完成分组（执行区下方） | 32px 紧凑行（`chevron` + 类型 + agent + 首行命令 + 状态 + 耗时 + `⋯`）；**展开由 `view.group.expandedIds` 布尔集合驱动**（行头/组头均可点击），**不再渲染倒计时/进度条**（样式/词典暂留，测试兼容）；分组默认折叠、整组内滚；失败 1px 红边框；已完成=绿边框 |
 
-> **替换关系**：v5/v7 的「终态后行内按 10s 收起 + 新终态自动展开已完成分组」被 v6 三态取代——自动展开分组**删除**，分组只由用户操作展开/折叠（契约 §6.7/§12.12 R10）。
+> **替换关系**：v5/v7 的「终态后行内按 10s 收起 + 新终态自动展开已完成分组」被 v6 三态取代；**v7 再修订**：已完成行的 10s 倒计时/进度条**删除**，展开由 `expandedIds` 独立控制（契约 §6.9）。
 
 ### 2.3 工具栏
 
@@ -116,6 +126,10 @@
 18. **linger 与「收起」（v6）**：终态后卡片在执行区滞留 10s（倒计时 + 「收起」按钮）；hover/focus 暂停倒计时，移出/失焦重新计 10s；点「收起」立即移入已完成（幂等）；`pinned` 不 arm。**不**自动展开已完成分组。
 19. **FLIP/fade（v6）**：离开执行区时 fade+scale，其余卡片 FLIP 补位；动画期间不得改变布局高度（不顶动 composer）；`prefers-reduced-motion` 瞬时。
 20. **首帧加载态（v6）**：首帧未到达显示 skeleton/加载态（非空态）；空态仅在「连接 ok 且首帧确认 0 条」显示，避免 job-only 场景空/有数据跳动。
+21. **已完成行展开（v7）**：行头点击切换 `expandedIds` 中该 runId；组头点击切换 `completedCollapsed`；展开后显示输出块（输入块 + 输出，复用卡片内容）；**不渲染任何倒计时/进度条**（v7 死样式/词典暂留，测试兼容）。
+22. **状态色板（v7）**：黄=进行中、绿=已完成、红=失败；明暗主题均可读；hover/focus 只改不透明度/内描边，**不得改变尺寸**。
+23. **铺满网格（v7）**：CSS flex（`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}`）行内卡片等宽拉伸；**不计算列数、不做 resize 重算**（仅 FLIP 用 ResizeObserver）；窄容器单列、无横向滚动。
+24. **树外 owner（v9 host）**：树外 owner 的 terminal 只要 Agent live 即按实时输出展示（清除 notice/meta-only）；未命中才保留 notice，不得因「不在会话树」而永久 meta-only。
 
 ## 4. 筛选
 
@@ -176,7 +190,7 @@
 | A11 | terminal 可见性 | 真机有 `terminal_open` 时面板必须有记录（meta-only 亦算），不得静默 0 条 | 真机（manual）+ Host 用例 |
 | A12 | 显示名 | agent/会话名不显示 sessionId 长串；空值显示 `—`；rootAgent 缺失仍能列出队友 | 纯函数/集成 + 真机（manual） |
 | A13 | meta-only 不误导 | 显示 `notice` 降级提示；无「运行中」动画；tier3 片段标注「非实时全量」；`notice.code` 实际为 no-agent/read-failed（controller-unavailable 保留） | 浅渲染 + 真机（manual） |
-| A14 | 网格换行（v6） | 执行区固定宽卡片 `flex-wrap: wrap` 自动换行、整体纵向滚动；无横向滚动条/`overflow-x:auto`/`›` 溢出按钮/`scrollLeft` 横向滑动 | 静态断言 + 真机目视（manual） |
+| A14 | 网格按行铺满（v7） | 行内卡片等宽拉伸填满（CSS flex，基准 352/min 280/拖 280–640）；无横向滚动条/`overflow-x:auto`/`›` 溢出按钮/`scrollLeft`；窄容器单列 | 静态样式断言 + 真机目视（manual） |
 | A15 | Run 三态（v6） | 终态后进入 linger（卡片仍在执行区 + 10s 倒计时），到点才进 completed 分组；`running` 不显示倒计时 | 纯函数 `runPhase`/`lingerVisual` 单测 + 真机（manual） |
 | A16 | 「收起」按钮（v6） | linger 卡片显示「收起」；点击立即进 completed 且幂等；`pinned` 不 arm | 纯函数 + 真机（manual） |
 | A17 | hover/focus 暂停（v6） | linger 倒计时在 hover/focus 暂停，移出/失焦后重新计 10s | 纯函数 `lingerVisual` + 真机（manual） |
@@ -185,3 +199,9 @@
 | A20 | 首帧 loading（v6） | 首帧前显示 skeleton/加载态而非空态；空态仅在连接 ok 且确认 0 条并经过 **600ms 稳定窗口**后出现（job-only 不闪） | 组件分支断言 + 真机（manual） |
 | A21 | 切 tab 回来首屏不空（缓存 + resync 兜底） | 缓存命中 → 首屏直接有内容且游标续传；缓存未命中 / revision 回退 → 发一次 `resync:true`，服务端全量重发、**无 removed 抖动**；Host 未实现时静默降级 | 缓存/revision 纯函数单测 + Host resync 用例 + 真机（manual） |
 | A22 | job-only 场景不抖动（v6 追加） | 仅后台 job 时首帧不出现「空态→有数据」跳变；`removed`/`runs` 同帧互斥（runs 优先）；本帧已见 Run 不被 prune | Host 帧不变量用例 + 真机（manual） |
+| A23 | 已完成行独立展开（v7） | 行头点击/组头点击均可展开收起；`expandedIds` 纯布尔、不依赖 `view.columns[runId]`；`removed`/清空已完成/筛选后 id 裁剪 | 纯函数/reducer 单测 + 真机（manual） |
+| A24 | 已完成行无倒计时（v7） | 已完成行**不渲染** `collapse.in`/`tp-countdown`/`tp-progress`（样式/词典暂留，测试兼容），不显示「Ns 后收起」 | 源码静态断言 + 真机（manual） |
+| A25 | 黄/绿/红状态色（v7） | 进行中卡片边框黄、已完成行/卡绿、失败红；hover/focus 不改布局尺寸 | 静态样式断言 + 真机（manual） |
+| A26 | 铺满网格无横向滚动（v7） | 静态断言 `.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}` 与 `.tp-col{width:100%}`；**无列数计算/resize 重算**（仅 FLIP ResizeObserver）；窄容器单列、无横向滚动 | 静态样式断言 + 真机（manual） |
+| A27 | 树外 owner 升级 live（v9 host） | 树外 owner 的 terminal 命中 live Agent → 输出 live、notice 清空、`meta-only→live`；未命中保持 meta-only | Host 集成用例 + 真机（manual） |
+| A28 | 诊断可见（v9 host） | `diagnostics.agentsService/agentsProbe{getOk,sampleIds}/terminalOwners{captured,alive,inScope,outOfScope}` 形状与取值正确 | Host 用例断言 + 真机 Network/Console（manual） |

@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v8）
+# dsh-terminal-panel · 架构与契约（v9）
 
-> 状态：**v8（v7 + 客户端展示层增量）** — 真机反馈（横向列滚动难用/终态跳变/切 tab 空屏/首帧空态闪烁）+ Lead 裁决；T37 Client 实现。**host 协议仅新增可选 `resync` 与一致性不变量（向后兼容，§4.2/§8.6）**。v8 新增：客户端 `SESSION_CACHE`（LRU 4 / TTL 30min）、Run 展示三态（`running→linger→completed`，**替换** v7「新终态自动展开分组」）、执行区**网格换行 + 纵向滚动**（横向滑动/溢出按钮**废弃**）、FLIP+fade 动画、首帧 skeleton 加载态；§11.2 冻结表 v8 增补 + §12.12 两条新裁决。
+> 状态：**v9（v8 + 真机可达性/视觉增量）** — 真机反馈（已完成行点不开且仍显示倒计时 / 卡片不铺满 / 状态色不清 / TERM 全部 meta-only / 诊断不足）+ Lead 裁决；T43 Client / T44 Host 实现。v9 新增：已完成行**独立展开**（`view.group.expandedIds`，已完成行**不再渲染** v7 倒计时/进度条；样式/词典暂留，测试兼容）、执行区**按行等宽铺满**（替换 v8 固定宽自动换行）、状态色板（黄进行中/绿已完成/红失败）、terminal tier1 Agent 解析扩为 **`scopes ∪ terminal ownerSessionId`**、`diagnostics` 扩展（agentsService/agentsProbe/terminalOwners）；**§11.2 冻结表不变（53 键；v9 客户端为纯 CSS/内部实现）** + §12.12 R13/R14。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -36,6 +36,7 @@
 | v6 | 2026-10-26 | Host 插件装载契约（H2/H2b，真机故障驱动）：ESM **只许具名导出 `name/inject/apply`，禁 `export default`**；`apply` **必须返回 `undefined`**（返回对象 → cordis `Invalid effect` → effects 回滚 → active 但路由不存在）；装配失败必须 `logger.error` + **rethrow**；§13.5 新增发布前自检项；docs/install.md 验证方式修正（无 cookie 裸 curl 不能判路由）。**冻结表未改动**。 |
 | v7 | 2026-10-26 | 真机缺陷驱动增量（Lead 裁决；T31 Host / T32 Client 实现）：`Run.inputs?`（terminal 输入采集）、`Run.notice?`、`Run.outputMode:'meta-only'`、`PollResult.diagnostics`（每帧必带）；终端发现**三级链路**（terminals.list → terminalController.list(sessionId) → tools/execute 旁路事件）；修订 §4.2 语义 5「agent 缺失不再删 Run」；§11 冻结表 v7 增补（T31/T32 交接后核对）；§12.11 三条新裁决；ui-spec 升 v5（标题首行/输入块/倒计时时序/抖动约束/composer 隐藏）。 |
 | v8 | 2026-10-26 | **客户端展示层增量（host 协议不变）**：客户端会话状态缓存（`SESSION_CACHE` LRU 4/TTL 30min）；Run 展示三态（running→linger→completed，**替换** v7「新终态自动展开分组」）；执行区网格自动换行 + 纵向滚动（**废弃** v5 横向滑动/滚动条/右侧溢出按钮）；fade+scale 180ms + FLIP 200ms 补位（仅 transform/opacity，reduced-motion 瞬时）；首帧前 skeleton 加载态；§11.2 冻结表 v8 增补；§12.12 R9/R10 两条新裁决；ui-spec 升 v6（A14–A20）；另含 **host 一致性补丁**（v8 追加）：`poll.resync`、`removed`/`runs` 同帧互斥 + `prune(protect)`、`revision` 回退=重建（§8.6/§12.12 R11/R12）；ui-spec 追加 A21/A22。 |
+| v9 | 2026-10-26 | **真机可达性/视觉增量（替换关系）**：已完成行展开改由 `view.group.expandedIds` 驱动、已完成行**不再渲染** v7 倒计时/进度条（样式/词典暂留，测试兼容；替换 v7 collapse 复用）；执行区**按行等宽铺满**（CSS flex，基准 352、拖 280–640、窄容器单列、无横向滚动，**替换 v8 固定宽自动换行**）；状态色板（黄=进行中/绿=已完成/红=失败）；terminal tier1 Agent 解析扩为 `scopes ∪ store terminal ownerSessionId`（树外 owner 可 `meta-only→live`）；`diagnostics` 增 `agentsService`/`agentsProbe`/`terminalOwners`；§11.2 冻结表**不变（53 键）**；§12.12 R13/R14；ui-spec 升 v7（A23–A28）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -120,7 +121,7 @@
 | `Run.inputs?` | `string[]` | **仅 terminal** | 初始为 terminal 名称（`terminal_open` 的 name / snapshot.name），随后追加捕获的 `terminal_send` 文本；**保留最后 20 条、单条 ≤2 KiB、合计 ≤8 KiB**，超出丢最旧。bash/job **不新增**该字段（Client 从 `run.command` 推导输入块） |
 | `Run.notice?` | `{ code: NoticeCode; message: string }` | 全部来源（当前仅 terminal 使用） | 降级提示；`NoticeCode = 'terminal-no-agent' \| 'terminal-read-failed' \| 'terminal-controller-unavailable'`（可扩展，Client 未知 code 按通用提示渲染）。**v7 实现口径**：实际只产出 `terminal-no-agent` / `terminal-read-failed`；`terminal-controller-unavailable` 为**保留值**（`sidebarTerminals` 默认关闭时不产生；开启且 controller 缺失时原因写在 `diagnostics.terminals.reason`）。UI 在输入块**上方**显示一行次要色提示，不阻断阅读 |
 | `Run.outputMode` | 新值 `'meta-only'` | terminal | **v7 定义**：无 live Agent、**读不到连续实时输出**；但**可能有 tier3 事件片段输出**（`terminal_open.motd` / `terminal_send.viewport` / `terminal_read.text` 追加进 `output`）——这些片段**非实时全量**，UI/校验必须标注来源与「片段」语义，**不得**据此判定为实时流完整。UI 显示输入块 + notice + 片段/空输出文案 |
-| `PollResult.diagnostics` | object（**每帧必带**） | 全部帧 | `{ rootSessionId: string, agentFound: boolean, agentCount: number, scopes: number, terminals: { candidates: number, source: 'terminals'\|'sidebar'\|'events'\|'none', reason?: string } }`；`'sidebar'` 仅当显式开启 terminalController（默认关）时出现；体积小、必须发送（旧客户端忽略）。这是下一轮真机定位的唯一证据来源 |
+| `PollResult.diagnostics` | object（**每帧必带**） | 全部帧 | `{ rootSessionId, agentFound, agentCount, scopes, terminals{ candidates, source:'terminals'\|'sidebar'\|'events'\|'none', reason? }, agentsService:boolean, agentsProbe:{ getOk:boolean, identityOk:boolean, sampleIds:string[] }, terminalOwners:{ captured,alive,inScope,outOfScope } }`（v9 扩展；实现另含 agentsAccess/sessionIdMatchesAgent/terminalScopes/tier1Terminals/metaOnlyTerminals/owner* 等定位字段，见 §4.2 TS 定义）；`'sidebar'` 仅当显式开启 terminalController（默认关）时出现；体积小、必须发送（旧客户端忽略）。这是下一轮真机定位的唯一证据来源 |
 
 #### 7.2 终端发现链路（v7 纠偏版；替换 §5.2 terminal 行的「发现」列，其余列语义不变）
 
@@ -128,7 +129,7 @@
 
 | 级 | 数据源 | 默认 | 命中行为 | 失败/降级 |
 |---|---|---|---|---|
-| 1（主） | `ctx.terminals.list(agent)` | **开** | agent PTY 正常登记，`outputMode:'live'`，可读连续输出 | 异常/无 Agent → 降级到级 3（或配置开启时级 2），reason 写进 `diagnostics.terminals.reason` |
+| 1（主） | `ctx.terminals.list(agent)` | **开** | v9：Agent 解析范围 = **会话树 `scopes` ∪ `store` 中 terminal Run 的 `ownerSessionId`**（树外 owner 命中 live → 正常登记、清 notice、`meta-only→live` 升级）；agent PTY 正常登记后 `outputMode:'live'`、可读连续输出 | 未命中 live Agent → 保持 meta-only + notice；异常 → 降级到级 3（或配置开启时级 2），reason 写进 `diagnostics.terminals.reason` |
 | 2（可选，**非默认**） | `ctx.terminalController.list(sessionId)` | **关**（config 开关缺省 `false`） | 仅在显式开启时登记 Run，来源**仅在 `diagnostics.terminals.source:'sidebar'` 可辨**；**Run 级不区分**（本期裁决：不新增 `Run.source`，UI 不需区分），但不得与 agent PTY 混排混淆 | 服务/方法不存在或抛错 → 级 3；reason 进 diagnostics |
 | 3（默认有效兜底） | `tools/execute` 旁路事件：`terminal_open` / `terminal_send` / `terminal_read` / `terminal_close` / `terminal_kill` | **开** | `terminal_open` 登记「仅元信息」Run（`source:'events'`）；`terminal_send` 追加 `inputs`；`terminal_read`/`terminal_send` 结果里的 `viewport`/`text` 可作为输出**片段**（见下）；`terminal_close`/`terminal_kill` 标终态（**不是删除**） | 无任何事件 → `diagnostics.terminals.source='none'`（此时「终端 0 条」有证据可查） |
 
@@ -165,9 +166,9 @@ waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只�
 
 > **范围**：纯客户端展示层；Host 协议（§4/§5 wire 契约、§9 config）**不变**。触发方：真机反馈 + Lead 裁决。详见 §6.7/§6.8 与 §12.12。
 
-#### 8.1 执行区网格（取代 v5「横向列 + 左右滚动」）
+#### 8.1 执行区网格（v8，**已被 v9 §9.2「按行铺满」取代**）
 
-- 执行区 = **固定宽卡片 + 自动换行（`flex-wrap: wrap`）**，整体**纵向滚动**；卡片默认宽 352，仍可拖 280–640（按会话记忆）。
+- （v8 历史）执行区 = 固定宽卡片 + 自动换行，整体纵向滚动；**v9 起改为按行等宽铺满（见 §9.2），本节其余「固定 352」表述作废**。
 - 窄容器（<360px）：卡片 `max-width:100%` 收缩为单列，**不出现横向滚动**；卡片高保持 342。
 - **废弃**：横向滑动、横向滚动条、右侧 `›` 溢出按钮、剩余列数角标、「可视 3 列」概念（ui-spec v5 §2.1 的横向条款被 v6 取代，见 §12.12 R9）。
 - 已完成区在执行区**下方**（随整体纵向滚动），分组默认折叠不变。
@@ -212,6 +213,50 @@ running ──终态──► linger（10s 滞留：倒计时 + 「收起」按�
 - **`panel.poll { resync?: true }`**：全量重同步（见 §4.2）；客户端 mount 缓存未命中 / revision 回退 / 手动重试时触发。
 - **`removed` 与 `runs` 同帧互斥**：同一 runId 不得同帧既 removed 又出现于 runs；冲突以 runs 为准（§4.2 语义 9）；`store.prune(now,{protect})` 保护本帧 discovery 已见 Run。
 - **`revision` 回退** = 服务端重建：客户端清空本地 view（保留筛选/分组用户态）+ 丢弃在途帧 + 一次 resync（§4.2 语义 6 / §6.8）。
+
+---
+
+### v9 真机可达性/视觉增量（2026-10-26，Lead 裁决；T43 Client / T44 Host 实现）
+
+> 触发方：真机反馈（已完成行点不开并仍显示倒计时、卡片不铺满、状态色不清、TERM 全部 meta-only、诊断不足）+ Lead 裁决。范围：客户端展示 + host terminal Agent 解析范围 + diagnostics（向后兼容）。**替换关系见 §0 v9 行**。
+
+#### 9.1 已完成行独立展开（**替换** v7 行内 collapse 倒计时）
+
+- `view.group.expandedIds: string[]` = 已完成行展开集合（纯布尔，无 timer/deadline）；`toggleRow(runId)` 只增删 id，**不依赖 `view.columns[runId]`**。
+- v7 真因（已定位）：`CompletedRow` 用 `collapseVisual(column.collapse)`，且 `toggleRow` 在 `view.columns[runId]` 缺失时直接 `return` → 行点不开 + 仍显示「10s 后收起」。
+- 行头与组头（`toggleGroup`）均可点击展开/收起；`completedCollapsed`（组折叠）仍独立保留；组展开时每行按 `expandedIds` 决定是否展开。
+- **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in` / `tp-countdown` / `tp-progress`），也不再复用 `column.collapse`；对应**样式/词典暂留（测试兼容，不属于 v9 行为）**，`collapse.*` 仅作历史状态字段。
+- `removed` / `clearCompleted` / 筛选变化后，`expandedIds` 必须裁剪为仍存在的已完成 runId（`mergePoll` 已处理 removed）。
+
+#### 9.2 执行区网格按行铺满（**替换** v8「固定宽自动换行」）
+
+- **实现口径（CSS flex，不是列数计算）**：`.tp-cell { flex: 1 1 var(--tp-card-w, 352px); min-width: min(280px,100%); max-width: 100% }`、`.tp-col { width: 100% }`；拖右缘调宽时写入 `--tp-card-w`/`flex-basis`（clamp 280–640，按会话记忆）。
+- **按行铺满**：每行卡片等宽拉伸填满，换行由容器宽度与基准宽决定；**不计算列数、不做 resize 重算**（`ResizeObserver` 仅用于 FLIP 补位）；窄容器单列；**无横向滚动**。
+- v8 的「固定 352 宽自动换行」**作废**；横向滑动/滚动条/溢出按钮仍作废（R9 保留，措辞改为「按行铺满」）。
+
+#### 9.3 状态色板（新增，明暗主题可读）
+
+| 状态 | 颜色令牌 |
+|---|---|
+| 进行中（执行区卡片边框） | `--dsw-alias-state-warn-primary`（黄） |
+| 已完成（已完成行/卡片） | `--dsw-alias-state-success-primary`（绿） |
+| 失败 | `--dsw-alias-state-error-primary`（红） |
+
+- 令牌经 Client Theme inspect 确认存在；**禁止硬编码 hex**。
+- hover/focus 只改 `opacity` / `box-shadow(inset)` 等不占布局的属性，**不得改变布局尺寸**（不抖动）。
+
+#### 9.4 terminal tier1 Agent 解析范围（host 语义变更，向后兼容）
+
+- `ctx.terminals.list/read` 的 Agent 解析范围从「仅会话树 `scopes`」扩为 **`scopes ∪ store 中已有 terminal Run 的 ownerSessionId`**。
+- 树外 owner 命中 `agents.get(owner)`（live Agent）→ 走 tier1 读输出、**清 `notice`**、`outputMode: 'meta-only' → 'live'` 升级；未命中保持 meta-only + notice（**仍显示，不删 Run**）。
+- 背景：真机 TERM 全部 meta-only 的根因是 owner 在树外（scout T42 强 INFERENCE）；tier1 不再因「不在会话树内」排除。
+
+#### 9.5 诊断扩展（`PollResult.diagnostics` 追加字段）
+
+- `agentsService: boolean`：`ctx.agents` 服务是否可用；`agentsAccess`：service 访问结果；`sessionIdMatchesAgent`：sessionId 能否直接作 `agents.get` key。
+- `agentsProbe: { getOk: boolean; identityOk: boolean; sampleIds: string[] }`：抽样验证 `agents.get` 可调用性 + 同引用校验（排查包装/旧引用）+ 样本 id。
+- `terminalOwners: { captured: number; alive: number; inScope: number; outOfScope: number }`：terminal owner 身份缓存统计（captured=缓存数、alive=WeakRef 仍活、inScope=命中树内、outOfScope=树外）。
+- 保留 `terminals: { candidates, source, reason? }`；全部向后兼容（旧客户端忽略）。
 
 ---
 
@@ -500,6 +545,23 @@ interface PollDiagnostics {
     // 'none'      = 全部不可用
     reason?: string                 // 降级原因（无则缺省）
   }
+  // ── v9 诊断扩展（实际实现当前发送字段；向后兼容，旧客户端忽略）──
+  agentsService: boolean             // ctx.agents 服务是否存在
+  agentsAccess: string               // service 访问结果（serviceAccess 快照）
+  agentsCount?: number               // = agentCount 的别名（实现保留）
+  sessionIdMatchesAgent: boolean     // sessionId 是否能直接作为 agents.get 的 key
+  agentsProbe: {
+    getOk: boolean                   // 抽样的 sampleIds 都能 agents.get() 取到
+    identityOk: boolean              // 取到的实例与 list() 条目同引用（排查包装/旧引用）
+    sampleIds: string[]              // 抽样 id（最多 5 个）
+  }
+  terminalOwners: { captured: number; alive: number; inScope: number; outOfScope: number }
+  terminalScopes?: number            // tier1 实际解析范围大小 = scopes ∪ terminal owner
+  tier1Terminals?: number            // store 中 outputMode==='live' 的 terminal 数
+  metaOnlyTerminals?: number         // store 中 outputMode==='meta-only' 的 terminal 数
+  ownerCached?: number; ownerResolved?: number; ownerFromCache?: number
+  ownerIdentityMismatch?: number; ownerMissing?: number
+  treeDegradation?: string           // 会话树降级原因（若有）
 }
 ```
 
@@ -735,7 +797,7 @@ interface Availability {
 |---|---|---|---|---|
 | **bash 前台** | `tools/execute` waterfall 记录 `{callId,name,arguments,agent?}` → Run 立即以 `status:'running'` 出现，`outputMode:'final-only'`（F21；waterfall 必须 `next()`） | **best-effort tee**：`bashCapture=true` 时尝试装饰 `ctx.shell.execute` 拿到返回的 `ShellExecution`，按其 `observed.stdout.readFrom(cursor)` 增量；成功 → 该 Run 升级 `outputMode:'live'`，`availability.bashLive.available=true`；失败 → 只保留 final-only，`availability.bashLive={available:false,reason:'no-shell-handle',code:'error'}`（F17：服务是一个上下文一个实现，第三方通常拿不到，属预期降级） | `tools/result`（emit，deep-frozen，不污染链）或 `tools/post-execute`（waterfall）的 `ToolExecutionResult`：提取 `content` 中 `type:'text'` 块（无则 `value` 的 JSON 摘要，≤32 KiB）→ 一次性作为 `stdout` 块，`detail:'final-only'`（F22/F23） | `ShellExecution.kill()`（仅 tee 成功时）；否则 `run-not-stoppable` |
 | **job** | 每个可见会话 `ctx.jobs.list(sessionId)`，按 jobId 去重合并（F16） | `ctx.jobs.readAt(jobId, cursor, ownerSessionId)`；`next` 不透明游标写回；`lossy` 透传；`from` 在 chunk 中间会重发整 chunk → 按 `chunk.at + 已知长度` 去重（F16/scout §11.4） | `status` 终态 + `detail`/`progress`；`output.total` 作 totals | `ctx.jobs.kill(jobId, ownerSessionId, 'cancelled by the user')` |
-| **terminal** | **v7 发现链路（纠偏版，详见 §7.2）**：① `ctx.terminals.list(agent)`（agent PTY，主）；② `ctx.terminalController.list(sessionId)`（**侧栏/浏览器终端，默认关闭**、开启时标 `source:'sidebar'`，与 agent PTY 不混排）；③ `tools/execute` 旁路事件（**默认有效兜底**）。**agent 缺失不删 Run**（meta-only + notice；tier3 片段可作补偿输出） | 每轮 `read(agent, id, { offset:0, count:max(k,1) })`，`k = totalLines_new - cursor_prev`：**k > 0** → 尾页增量 + 尾重叠去重；**k === 0** → 正常「空闲探尾」（PTY 可能用 `\r` 重写当前行）：不追加、**不标 lossy**、基线不变；**k < 0** → scrollback 裁剪/回退：`lossy:true` + 重置基线并给当前尾页。历史阅读靠本地缓冲 + 手动上翻 `offset += count`（服务端只给增量）。**合成分隔符不计入 terminal 行坐标**（tier3→tier1 接管首帧会在 `text` 前插入合成 `\n`，不计入 `totalLines/lineBegin/lineEnd`；`lineEnd-lineBegin` = 真页行数，`text.split('\n').length` = 真页行数+1；纯片段帧一致）。无 Agent 时读不到连续输出 → `outputMode:'meta-only'` + `notice` + tier3 片段 | `status.kind==='exited'` → exitCode 0 ? completed : failed（signal 记 detail） | `ctx.terminals.kill(agent, id, 'cancelled by the user')`（无 Agent 时不可停止） |
+| **terminal** | **v9 发现链路（详见 §7.2/§9.4）**：① `ctx.terminals.list(agent)`（agent PTY，主；**v9 Agent 解析范围 = 会话树 scopes ∪ store 中 terminal Run 的 ownerSessionId**，树外 owner 也可读 live）；② `ctx.terminalController.list(sessionId)`（**侧栏/浏览器终端，默认关闭**、开启时标 `source:'sidebar'`，与 agent PTY 不混排）；③ `tools/execute` 旁路事件（**默认有效兜底**）。**agent 缺失不删 Run**（meta-only + notice；tier3 片段可作补偿输出） | 每轮 `read(agent, id, { offset:0, count:max(k,1) })`，`k = totalLines_new - cursor_prev`：**k > 0** → 尾页增量 + 尾重叠去重；**k === 0** → 正常「空闲探尾」（PTY 可能用 `\r` 重写当前行）：不追加、**不标 lossy**、基线不变；**k < 0** → scrollback 裁剪/回退：`lossy:true` + 重置基线并给当前尾页。历史阅读靠本地缓冲 + 手动上翻 `offset += count`（服务端只给增量）。**合成分隔符不计入 terminal 行坐标**（tier3→tier1 接管首帧会在 `text` 前插入合成 `\n`，不计入 `totalLines/lineBegin/lineEnd`；`lineEnd-lineBegin` = 真页行数，`text.split('\n').length` = 真页行数+1；纯片段帧一致）。无 Agent 时读不到连续输出 → `outputMode:'meta-only'` + `notice` + tier3 片段 | `status.kind==='exited'` → exitCode 0 ? completed : failed（signal 记 detail） | `ctx.terminals.kill(agent, id, 'cancelled by the user')`（无 Agent 时不可停止） |
 
 归属与树：
 
@@ -909,6 +971,15 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 - `retryToken` 变化只触发重连，**不清空 view**；TTL/LRU/会话删除/`removed` 才会失效。
 - 插件卸载清整个缓存；React 卸载不清（同会话内切 tab 需要）。
 - **resync 兜底（v8 追加）**：缓存未命中（首次挂载/被 LRU 淘汰/TTL 过期）或检测到 `revision` 回退时，除恢复缓存外还必须发一次 `panel.poll {resync:true}`（`resync` 不产生 removed）；`retryToken` 手动重试同样触发一次 resync。Host 未实现 resync 时按 `bad-request`/`unknown-method` 静默降级为普通轮询。
+
+---
+
+### 6.9 已完成行展开（v9，替换 v7 行内 collapse 倒计时）
+
+- 状态：`view.group.expandedIds: string[]`（已完成行展开集合，纯布尔）；`toggleRow(runId)` 增删 id，**不读/不依赖 `view.columns[runId]`**。
+- 交互：行头点击切换该行；组头点击切换 `completedCollapsed`（组折叠）；组展开时行按 `expandedIds` 渲染。
+- **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in`/`tp-countdown`/`tp-progress`），不复用 `column.collapse`；样式/词典**暂留（测试兼容）**。`removed`/`clearCompleted`/筛选变化后 `expandedIds` 裁剪为仍存在的 runId。
+- v7 真因（供回归断言）：旧 `CompletedRow` 用 `collapseVisual(column.collapse)`，`toggleRow` 在 column 缺失时 `return` → 点不开 + 仍显示「10s 后收起」。
 
 ---
 
@@ -1099,7 +1170,7 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
-### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**
+### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9 不变：53 键；v9 客户端改动为纯 CSS/内部实现，未新增导出）
 
 **仍然采用 v1 的单文件 + `__internals` 方案**（frontend 写作用域不含 `scripts/**`，禁止装打包器）：
 
@@ -1295,6 +1366,8 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | R10 | **Run 三态 linger 取代 v7「新终态自动展开分组」**（替换，非叠加） | 真机反馈：终态瞬间跳入已完成导致跳动、刚结束的任务难找；10s 滞留 + 「收起」按钮更可控 | ui-spec v6 §2.2/§9 A15–A17；tester 断言 `runPhase`/`lingerVisual`/收起 reducer |
 | R11 | **`revision` 回退 = 服务端重建**：客户端清本地 view + 发一次 `resync:true`（旧语义 `<=` 丢弃会让 Host/插件重载后面板永久冻住） | 真机②：重载后面板停止更新，需刷新页面 | §4.2 语义 6 / §6.8；tester 断言 `isRevisionRollback` + 组件清 view + resync 只发一次 |
 | R12 | **`removed` 与 `runs` 同帧互斥，冲突以 runs 为准**；`store.prune` 增加「本帧已见」保护 | 真机①：job 结算后同帧 removed+重新 upsert 造成列表抖动 | §4.2 语义 5/9；tester 断言同帧互斥、protect 不 prune |
+| R13 | **状态色板**：进行中=黄 `--dsw-alias-state-warn-primary`、已完成=绿 `--dsw-alias-state-success-primary`、失败=红 `--dsw-alias-state-error-primary`；hover/focus 不改布局尺寸 | 真机：状态靠颜色不可辨、hover 抖动 | ui-spec v7 §2.1/§2.2 + §9 A24；tester 静态断言边框色令牌 + 无尺寸变化 |
+| R14 | **树外 owner 不由 tier1 排除**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；命中即清 notice、`meta-only→live` | 真机 TERM 全部 meta-only，根因 owner 在树外（scout T42） | §5.2/§7.2/§9.4；tester mock 树外 owner live 用例 + diagnostics.terminalOwners |
 
 ---
 
@@ -1321,6 +1394,9 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v8 `resync`**：`panel.poll.resync:true`（或 `cursors:null`）→ 可见选择集 Run 全部 metaDirty + 读游标回退；**不发 removed**；预算/≥1 Run 保底不变，可多帧收敛；被重置 runId 进本帧 prune 保护。
 - [ ] **v8 `removed`/`runs` 互斥**：同帧不得同 runId 双发，冲突以 runs 为准；`store.prune(now,{protect})` 保护本帧 discovery 已见 Run。
 - [ ] **v8 `revision` 回退**：客户端 `incoming < applied` 清 view（保留筛选/分组）+ 发一次 resync；`===` 丢弃；`>` 前进。
+- [ ] **v9 已完成行展开**：`view.group.expandedIds` 纯布尔；`toggleRow` 不依赖 `view.columns`；已完成行不渲染 `collapse.in`/倒计时/进度条；`removed`/`clearCompleted` 后裁剪 id。
+- [ ] **v9 tier1 树外 owner**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；命中清 notice + `meta-only→live`；未命中保持 meta-only；`diagnostics.agentsService/agentsProbe/terminalOwners` 必发。
+- [ ] **v9 执行区铺满**：CSS flex（`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}`、`.tp-col{width:100%}`），基准 352/拖 280–640、窄容器单列、无横向滚动；**不计算列数/不做 resize 重算**（仅 FLIP 用 ResizeObserver）。
 
 ### 13.2 frontend（T4）v2/v3 增补
 

@@ -1,7 +1,7 @@
 # AGENTS.md · dsh-terminal-panel 项目指引
 
 > 给未来会话 / 其他 agent 的项目级指引。**先读本文件，再读契约**；一切硬性接口以
-> [`docs/architecture/contract.md`](docs/architecture/contract.md)（**v8**）为唯一契约来源。
+> [`docs/architecture/contract.md`](docs/architecture/contract.md)（**v9**）为唯一契约来源。
 > 本文件只描述仓库现状，不发明未实现的能力。仓库：<https://github.com/xx529/dsh-terminal-panel>
 
 ## 1. 项目定位
@@ -9,7 +9,7 @@
 DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` version `0.1.0`，`private`）：
 在会话头部 View 标签栏新增「终端」tab（`conversation.view`，`id: terminal-panel`，`order: 30`），把
 **当前会话 + 子代理 + Agent Team 队友** 的 bash 前台执行、后台任务（`ctx.jobs`）、持久终端（`ctx.terminals`）
-输出聚合成**只读**的卡片网格面板（v8：网格换行/三态 linger/会话缓存/FLIP，详见 §4）。
+输出聚合成**只读**的卡片网格面板（v9：按行铺满/已完成行独立展开/黄绿红色板/树外 owner live，详见 §4）。
 
 - 代码侧已交付（见 §9）；**尚未做真机安装与视觉验收**。
 - 双端形态：Host 半端 = ESM Cordis 插件；Client 半端 = 单文件 classic script（`window.__ModuleLoader__.load`）。
@@ -45,8 +45,8 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 │   └── e2e/smoke.mjs             #   端到端冒烟脚本（可独立运行）
 ├── scripts/smoke-host.mjs        # Host mock ctx 冒烟（91 checks）
 ├── docs/
-│   ├── design/ui-spec.md         # v6 设计规格（验收基线）
-│   ├── architecture/contract.md  # **唯一契约来源（v8）**
+│   ├── design/ui-spec.md         # v7 设计规格（验收基线）
+│   ├── architecture/contract.md  # **唯一契约来源（v9）**
 │   ├── research/dsh-plugin-apis.md # scout T1 平台取证（事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/{acceptance-matrix,report,integration-report}.md
@@ -59,16 +59,16 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 
 ```bash
 npm run check      # node --check lib/index.js && node --check lib/client.js
-npm test           # node --test "tests/**/*.test.mjs" → 323 tests / 323 pass
+npm test           # node --test "tests/**/*.test.mjs" → 338 tests / 338 pass
 npm run smoke      # node scripts/smoke-host.mjs → 91/91 checks，exit 0
 npm run verify     # check → test → smoke（当前 exit 0）
 node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ```
 
 **门禁：任何改动后必须跑 `npm run verify` 并通过（exit 0）。** 不依赖网络、不装依赖。
-当前基线：**323 tests / 323 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T39 最终报告）。
+当前基线：**338 tests / 338 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T46 最终报告）。
 
-## 4. 硬约束（摘自 contract v8，违反即缺陷）
+## 4. 硬约束（摘自 contract v9，违反即缺陷）
 
 1. **唯一集成点**：客户端 Slot `conversation.view`（`name: 'conversation.view'`、`id: 'terminal-panel'`、`order: 30`、`locale` 词典 + `label` 函数）。禁止自绘 tab。
 2. **Client 半端形态**：`lib/client.js` 是**单文件 classic script**：`window.__ModuleLoader__.load({ id: 'dsh-terminal-panel', factory(require) {…} })`；**无 JSX/TS/import**；只允许 `require('react')`（平台模块表）；样式自己注入 `<style data-plugin-css>` 并在卸载时移除。禁止 `host.call` / `styles.insert`（那是动态 Cordis 包的能力）。
@@ -93,6 +93,10 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 21. **会话状态缓存 + resync（v8）**：模块级 `SESSION_CACHE`（LRU 4 / TTL 30min，`{view,cursors,revision,savedAt}`）；切 tab 回首屏不空、游标续传；`retryToken` 变化不清 view。**缓存未命中 / `revision` 回退 / 手动重试时发一次 `panel.poll {resync:true}`**（不发 removed；Host 未实现时静默降级）（contract §6.8/§4.2）。
 22. **动画与加载态（v8）**：离开执行区 fade+scale ≈180ms + FLIP 补位 200ms（仅 transform/opacity、不改布局高度）；reduced-motion 瞬时；**首帧前 skeleton ≠ 空态**（空态只在连接 ok 且确认 0 条时显示）。
 23. **Host 一致性补丁（v8）**：`removed` 与 `runs` **同帧互斥**（冲突以 runs 为准，`removed` 延后一帧）；`store.prune(now,{protect})` 保护本帧 discovery 已见 Run（防 job 结算后 removed/re-upsert 抖动）；**`revision` 回退 = 服务端重建** → 客户端清本地 view（保留筛选/分组）+ 丢弃在途帧 + 一次 resync（禁止按 `<=` 直接丢弃导致重载后冻住）。
+24. **已完成行独立展开（v9）**：`view.group.expandedIds`（布尔集合）驱动，**不复用 `column.collapse`**；行头/组头都可点击；**已完成行不再渲染倒计时/进度条**（`collapse.in`/`tp-countdown`/`tp-progress`；样式/词典暂留，测试兼容，不属于 v8 行为）；`removed`/清空/筛选后裁剪 id（contract §6.9）。
+25. **执行区按行铺满（v9，CSS flex）**：`.tp-cell{flex:1 1 var(--tp-card-w,352px);min-width:min(280px,100%);max-width:100%}` + `.tp-col{width:100%}`；基准 352、拖 280–640、窄容器单列、无横向滚动；**不计算列数/不做 resize 重算**（仅 FLIP 用 ResizeObserver）；v8「固定 352 自动换行」作废（contract §9.2）。
+26. **状态色板（v9）**：进行中黄 `--dsw-alias-state-warn-primary`、已完成绿 `--dsw-alias-state-success-primary`、失败红 `--dsw-alias-state-error-primary`；hover/focus 只改 opacity/内描边，**不改布局尺寸**（contract §9.3/§12.12 R13）。
+27. **terminal tier1 树外 owner（v9 host）**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；树外 owner 命中 live → 清 notice、`meta-only→live`；未命中保持 meta-only（仍显示，不删 Run）；`diagnostics.agentsService/agentsProbe/terminalOwners` 每帧必带（contract §9.4/§9.5）。
 
 ## 5. 已知限制（已裁决，不要当 bug 修）
 
@@ -105,6 +109,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 7. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则在 `[data-conversation-content]` set/remove `data-tp-composer-hidden` + CSS 隐藏 `[data-composer-seat]`（找不到锚点静默降级，无 body 兜底）；宿主 DOM 变更可能失效（终端 tab 仍可用，只是输入框未隐藏，其它 tab 不受影响）。
 8. **真机 5 项缺陷已代码侧修复，真机复验仍待做**（见 README「真机反馈修复（v7）」）；不得据此宣称已真机验收。
 9. **v8 展示层行为变更（不是缺陷）**：执行区横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 10s + 收起按钮）；切 tab 依赖会话缓存（LRU 4/TTL 30min，第 5 个会话不保证首屏不空）。
+10. **v9 行为变更（不是缺陷）**：已完成行改为独立展开且**无倒计时**；执行区改为按行铺满（不再固定 352）；状态色为黄/绿/红；树外 owner 的 terminal 可升级 live（未命中仍 meta-only + notice）。
 
 ## 6. 安装与发布
 
@@ -117,8 +122,8 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v6 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A22） |
-| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v8）**：集成/传输/数据模型/状态机/预算/冻结表/裁决 |
+| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v7 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A28） |
+| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v9）**：集成/传输/数据模型/状态机/预算/冻结表/裁决 |
 | [`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md) | scout T1 平台取证（FACT/INF/ASSUMPTION 事实来源） |
 | [`docs/research/terminal-panel-followup-2026-10-26.md`](docs/research/terminal-panel-followup-2026-10-26.md) | v7 真机缺陷取证（terminal 可见性/agent 解析/composer 方案；若文件存在） |
 | [`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md) | 验收矩阵（ui-spec ↔ 用例） |
@@ -132,15 +137,16 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 - 分支：`main`（发布前不要自行改分支名/强推）。
 - 提交信息类型：`feat:` / `fix:` / `test:` / `docs:` / `chore:`（必要时 `feat(deploy):` 这类 scope）。
 - **改动前先读契约**（`docs/architecture/contract.md`，尤其 §4/§11/§12）；实现与契约冲突先停下确认，不要静默改行为。
-- **契约变更**：必须同步 §0「版本与变更记录」（当前 v8），并说明触发方（Lead 裁决/审计/实现偏差）。
+- **契约变更**：必须同步 §0「版本与变更记录」（当前 v9），并说明触发方（Lead 裁决/审计/实现偏差）。
 - **测试不得「顺手改绿」**：禁止为了让用例通过而放宽断言或改 `tests/**` 的期望值；实现错就修实现，用例错需先说明理由并获批准。
 - 冻结表改动需 maintainer 批准；低风险文案/像素级差异见 contract §12.10（L1–L5）。
 - 文档写作用域各归其主（architect=契约/docs；backend=lib/host；frontend=lib/client.js；tester=tests/docs/testing；devops=deploy），改动不要越界。
 
 ## 9. 验收基线
 
-- **代码侧已交付**：`323 tests / 323 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（tester T39 最终报告，2026-10-26）。
-- **v8**：展示层（网格换行 / Run 三态 linger / 会话缓存 / FLIP+fade / 首帧 loading）+ host 一致性补丁（resync / removed-runs 互斥 / revision 回退恢复）——代码侧已修（T37/T41），真机复验待做；ui-spec v6 新增 A14–A22（均含 manual/Unverified 项）。
+- **代码侧已交付**：`338 tests / 338 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（tester T46 最终报告，2026-10-26）。
+- **v9**：已完成行独立展开（无倒计时）/ 执行区按行铺满 / 状态色板 / 树外 terminal owner 升级 live / 诊断扩展——代码侧已修（T43/T44），真机复验待做；ui-spec v7 新增 A23–A28（均含 manual/Unverified 项）。
+- **v8**：展示层（网格换行 / Run 三态 linger / 会话缓存 / FLIP+fade / 首帧 loading）+ host 一致性补丁（resync / removed-runs 互斥 / revision 回退恢复）——代码侧已交付（T37/T41）。
 - **v7 真机反馈 5 项**：terminal 记录可见 / 界面抖动 / 标题首行 / 输出含输入 / 收起时序 / composer 隐藏——代码侧已修（T31/T32），**真机复验待做**；ui-spec v5 新增 A1–A13 可验收条目（其中 A7/A8/A9/A10/A11/A12/A13 含真机/manual 项）；terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史 pty 不可回读，不计缺陷）。
 - **真机待验收**：ui-spec 有 **19 项 Unverified**（视觉/像素、指针/键盘交互、宿主集成行为、平台限制项、网络/权限异常、性能等），清单与步骤见 `docs/testing/integration-report.md` §10 与 `docs/install.md` §3。
 - **不得宣称已真机验收**，除非逐项执行并留下证据（截图/Console/Network 记录）。

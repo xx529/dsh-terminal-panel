@@ -241,3 +241,14 @@ node tests/e2e/smoke.mjs
 | A21 | 缓存未命中/revision 回退 → resync，无 removed 抖动 | auto（缓存/revision + host resync） | `client/v8.test.mjs::isRevisionRollback` + `A18/A21 静态`；`host/v8-consistency.test.mjs::resync…`、`cursors:null 等价…` | 纯函数/Host **PASS**；真机重载 **Unverified** |
 | A22 | job-only 不抖动；removed/runs 互斥；本帧已见 Run 不被 prune | auto（Host 帧不变量） | `host/v8-consistency.test.mjs::removed/runs 同帧互斥`、`removed 正常路径`、`prune(now,{protect})`、`A22 job-only 相邻帧稳定` | Host **PASS**；真机首帧 **Unverified** |
 
+## 14. ui-spec v7 A23–A28 映射（v9 展示可达性 + host 树外 owner/诊断）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A23 | 已完成行独立展开（expandedIds 纯布尔、不依赖 columns、removed/清空裁剪） | auto（reducer+静态）+ manual | `client/v9.test.mjs::A23 createViewState…`、`mergePoll：预置 expandedIds 跨帧保留`、`mergePoll removed：expandedIds 裁剪`、`setRowExpanded/toggleRow 只操作 group.expandedIds…`、`clearCompleted 裁剪…` | reducer/静态 **PASS**；真机点击 **Unverified** |
+| A24 | 已完成行无倒计时（不渲染 collapse.in/tp-countdown/tp-progress） | auto（组件级静态）+ manual | `client/v9.test.mjs::A24 已完成行（组件级静态）…`（CompletedRow 无相关渲染/无 column.collapse；死 CSS 仍存在但解耦） | **PASS**；视觉 **Unverified** |
+| A25 | 黄/绿/红状态色；hover/focus 不改布局尺寸 | auto（静态）+ manual | `client/v9.test.mjs::A25 状态色板…`（running=warn、linger/completed=success、failed=error；hover/focus 仅颜色类属性） | 静态 **PASS**；明暗主题 **Unverified** |
+| A26 | 铺满网格、无横向滚动 | auto（静态）+ manual | `client/v9.test.mjs::A26 网格铺满…`（`.tp-cell{flex:1 1 var(--tp-card-w,352px)}`、内层 `.tp-col width:100%`、等高 342、窄容器单列、无 overflow-x/scrollLeft/tp-more、拖拽 clamp 280–640）；**注**：contract §9.2 的「列数按基准宽取整/320–352 自适应」无对应纯函数（V9-C2） | 结构 **PASS**；真实 resize **Unverified** |
+| A27 | 树外 owner 升级 live（命中清 notice、meta-only→live；未命中保持 meta-only） | auto（Host 集成）+ manual | `host/v9-owner.test.mjs::A27 树外 owner 命中 live…`、`未命中 agent…`、`树内 owner 行为不变…`、`升级 live 后失联不误删` | Host **PASS**；真机队友/subagent terminal **Unverified** |
+| A28 | 诊断可见（agentsService/agentsProbe/terminalOwners 形状与取值） | auto（Host）+ manual | `host/v9-owner.test.mjs::A28 diagnostics 形状…`、`agentsAccess=property`、`agentsProbe getOk/identityOk` | Host **PASS**；真机 Network/Console **Unverified** |
+
