@@ -13,8 +13,8 @@ root_cause: 规则未定义 — 架构阶段缺少「平台能力先取证、再
 impact: backend 多实现一条降级链路（tools/result 终态、final-only Run、幽灵 Run 吸收、availability.bashLive）；frontend 增加「仅终态」徽标与禁用停止；验收矩阵把该能力标 manual+限制（矩阵 D5-1）。未造成返工式重写，但 final-only 语义定案延后（v1→v2），多消耗一轮跨角色对齐，且 client/service 两侧都要为「同一能力两种 outputMode」写分支。
 fix: contract v2 三层数据源（tools/execute 记录 + tools/result 终态 + shell tee best-effort）+ availability.bashLive + outputMode:'final-only'；client 对 final-only 显示「仅终态」并禁用停止；tester 用 panel.test.mjs 的「来源缺失 → availability 标记、帧仍正常」用例与 smoke 的 bashLive 两态断言覆盖降级路径。
 prevention: 三项可执行载体——(1) 契约规则：contract §2 中每个平台能力必须带证据或标 ASSUMPTION+验证方式，ASSUMPTION 不得作为 UI 硬承诺；每次升版逐条扫 §2 与 §12.9（owner: architect）；(2) 测试载体：tests/host/panel.test.mjs 增加「bashLive.available=false 时 panel.poll 仍返回完整帧」断言（owner: tester，当前缺失，见 status）；(3) 流程载体：任务拆解时「未验证平台能力」必须先派 scout 取证任务，contract 任务以 blocked_by 依赖该取证任务（owner: lead，本次已按此执行）。
-verified_by: architect 在本轮升版时执行契约扫描（contract §2/§12.9 当前 ASSUMPTION 项均非 UI 硬承诺，扫描记录见下「prevention 明细」）；Lead 核对任务板 blocked_by（task-7 blocked_by task-1）；测试载体 (2) 尚未落地 → status 保持 open。
-status: open
+verified_by: architect 在本轮升版时执行契约扫描（contract §2/§12.9 当前 ASSUMPTION 项均非 UI 硬承诺，扫描记录见下「prevention 明细」）；Lead 核对任务板 blocked_by（task-7 blocked_by task-1）；测试载体 (2) 已落地：`tests/host/panel.test.mjs` 的 bashLive=false 完整帧用例（tester 2026-10-26 执行 `node --test "tests/**/*.test.mjs"` → 237/237 pass，0 fail，exit 0）→ status closed。
+status: closed
 ```
 
 ## 证据
@@ -34,14 +34,14 @@ status: open
 | # | 载体类型 | 载体位置 | 落地 owner | 当前状态 | 验证方式 |
 |---|---|---|---|---|---|
 | P1 | 契约规则 | `docs/architecture/contract.md` §0 标注口径 + §2「scout 复核」列 + §12.9 未确认项表；规则：平台能力必须带证据或标 `[ASSUMPTION]` + 验证方式，`[ASSUMPTION]` 不得作为 UI 硬承诺 | architect | **已落地** | 本轮升版执行扫描：`grep -n '\[ASSUMPTION\]' docs/architecture/contract.md` → 正文 2 项（页面 `baseURI`、Host `Config` schema；第 3 处命中是 §0 的定义句），逐条确认均非 UI 硬承诺；扫描动作已随 v4 附录执行 |
-| P2 | 测试载体 | `tests/host/panel.test.mjs` 新增用例：`bashLive.available=false` 时 `panel.poll` 仍返回 `ok:true` 且帧完整（runs 按其它来源正常、`availability` 不因 bashLive 缺失而整体失败） | tester | **未落地（open）** | `grep -rn "bashLive" tests/` 无命中；落地后跑 `npm test` 应通过并由 tester 在本表更新状态 |
+| P2 | 测试载体 | `tests/host/panel.test.mjs` 新增用例：`bashLive.available=false` 时 `panel.poll` 仍返回 `ok:true` 且帧完整（runs 按其它来源正常、`availability` 不因 bashLive 缺失而整体失败） | tester | **已落地（closed，2026-10-26）** | 用例：`tests/host/panel.test.mjs::availability.bashLive=false 时 panel.poll 仍返回完整帧、bash 来源可用（T11 prevention 载体）`；verified_by：`node --test "tests/**/*.test.mjs"` → **237/237 pass，0 fail，0 skip，exit 0**（基线 236 + 本用例 1） |
 | P3 | 流程载体 | 任务板依赖：任何把「未验证平台能力」写入 contract 的任务，必须以 `blocked_by` 依赖 scout 取证任务 | lead | **已执行** | 核对任务板：`task-7 blocked_by [task-1, task-2]`（T1 scout 取证是契约 v2 的前置） |
 
 ## status 说明与解除条件
 
-- `status: open` 的原因：**P2（测试载体）尚未落地**；P1/P3 已生效。
+- `status: closed`（2026-10-26）：**P2（测试载体）已落地**并通过全量回归（237/237）；P1/P3 此前已生效。
 - 落地 owner：**tester**。
-- 解除条件（全部满足后由 architect 把 status 改 `closed` 并补 `verified_by`）：
+- 解除条件（三条均已满足，2026-10-26 由 tester 执行、architect 任务线确认）：
   1. `tests/host/panel.test.mjs` 存在断言 `availability.bashLive.available === false` 时 poll 帧仍完整；
   2. `node --test "tests/**/*.test.mjs"` 通过（当前 236 用例基线不回退）；
   3. 在本文件 `prevention 明细` P2 行更新为「已落地」并附用例名。

@@ -256,3 +256,70 @@ test('panel.poll: revision 单调递增（客户端据此丢弃乱序帧，§4.2
   assert.ok(r2.value.revision > r1.value.revision, `revision 必须递增：${r1.value.revision} → ${r2.value.revision}`)
   await panel.dispose?.()
 })
+
+test('availability.bashLive=false 时 panel.poll 仍返回完整帧、bash 来源可用（T11 prevention 载体）', { skip }, async () => {
+  // mock ctx：没有 shell（tee 必然失败 → bashLive 降级），但 tools 服务存在 → 前台 bash 仍能被记录为 final-only Run
+  const services = baseServices({ tools: {}, shell: undefined })
+  const { panel, fake } = makePanel(services)
+  assert.equal(typeof panel.start, 'function')
+  panel.start()
+
+  // 模拟 tools/execute waterfall：面板观察者必须记录 ghost Run 且原样 next()
+  const exec = {
+    callId: 'call-live-1',
+    name: 'bash',
+    arguments: { command: 'npm test' },
+    agent: { id: 'root-1', name: 'lead' },
+  }
+  const executeListener = fake.listeners.find((entry) => entry.event === 'tools/execute')
+  assert.ok(executeListener, 'panel.start 必须注册 tools/execute 监听')
+  let nextCalled = false
+  const nextResult = await executeListener.handler(exec, async () => {
+    nextCalled = true
+    return { isError: false }
+  })
+  assert.equal(nextCalled, true, '观察者不得改变工具链：必须原样调用 next()')
+  assert.deepEqual(nextResult, { isError: false })
+
+  // 阶段 1（运行中）：bashLive 不可用，但帧必须完整
+  let r = await rpc(panel, 'panel.poll', { sessionId: 'root-1' })
+  assert.equal(r.ok, true, `bashLive=false 不得让 poll 失败：${JSON.stringify(r.error)}`)
+  assert.equal(r.value.availability.bashLive.available, false, '无 shell 句柄 → bashLive 必须降级')
+  assert.equal(typeof r.value.availability.bashLive.reason, 'string')
+  assert.equal(r.value.availability.bash.available, true, 'tools/execute 兜底可用 → bash 来源仍 available（§8）')
+  assert.equal(r.value.sessions[0].sessionId, 'root-1', 'sessions 树必须正常返回')
+  assert.equal(typeof r.value.truncated, 'boolean')
+
+  const liveRunId = 'bash:call-live-1'
+  const runningRun = r.value.runs.find((run) => run.runId === liveRunId)
+  assert.ok(runningRun, `runs 中必须能看到前台 bash 的 final-only Run，实际 ${JSON.stringify(r.value.runs.map((x) => x.runId))}`)
+  assert.equal(runningRun.kind, 'bash')
+  assert.equal(runningRun.status, 'running')
+  assert.equal(runningRun.outputMode, 'final-only')
+  assert.equal(runningRun.stoppable, false, 'final-only bash 不可停止')
+  // §4.3 不变量①：nextCursors 只含本帧已交付的 Run
+  const delivered = new Set(r.value.runs.map((run) => run.runId))
+  for (const runId of Object.keys(r.value.nextCursors)) {
+    assert.ok(delivered.has(runId), `nextCursors 含未交付 run: ${runId}`)
+  }
+
+  // 阶段 2（终态）：tools/result 提供终态输出，帧仍完整且 Run 变为 completed
+  const resultListener = fake.listeners.find((entry) => entry.event === 'tools/result')
+  assert.ok(resultListener, 'panel.start 必须注册 tools/result 监听')
+  resultListener.handler(exec, {
+    isError: false,
+    value: { content: [{ type: 'text', text: 'Tests: 12 passed\nexit code 0' }] },
+  })
+  r = await rpc(panel, 'panel.poll', { sessionId: 'root-1' })
+  assert.equal(r.ok, true)
+  const doneRun = r.value.runs.find((run) => run.runId === liveRunId)
+  assert.ok(doneRun, '终态帧必须包含该 Run')
+  assert.equal(doneRun.status, 'completed')
+  assert.equal(doneRun.outputMode, 'final-only')
+  assert.ok(
+    JSON.stringify(doneRun).includes('12 passed'),
+    `终态输出应来自 tools/result 文本，实际 ${JSON.stringify(doneRun.output ?? {})}`,
+  )
+  await panel.dispose?.()
+  assert.equal(fake.listeners.length, 0, 'panel.dispose 后监听必须撤销')
+})
