@@ -12,6 +12,8 @@
 | Host mock 冒烟 | **72/72 checks passed，exit 0** | `npm run smoke` |
 | 一键全验 | check → test → smoke | `npm run verify` |
 
+> T6 集成审计（commit `ad39516`）：**无 CRITICAL**；1 HIGH **H1**（Tier2 单 Run 超限 livelock，backend task-12 修复中）+ M1（菜单两项裁决不做）/M2（选择集一致）已裁决/排期；LOW L1–L5 见 contract §12.10。
+
 ## 快速验证
 
 ```bash
@@ -28,10 +30,10 @@ npm run verify
 
 - 设计规格（v4，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
-- 架构与接口契约：[`docs/architecture/contract.md`](docs/architecture/contract.md)（v3 冻结 + v4 附录补丁）
+- 架构与接口契约：[`docs/architecture/contract.md`](docs/architecture/contract.md)（v4.1：v3 冻结 + v4 附录 + T6 H1/M1/M2 落字）
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
 - 测试报告：[`docs/testing/report.md`](docs/testing/report.md)
-- 集成报告：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（T6 产出，**待生成**）
+- 集成报告（T6）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（已完成，commit `ad39516`；结论：无 CRITICAL、1 HIGH（H1 Tier2 livelock，修复中）、M1/M2 MEDIUM 已裁决/排期）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
 - 复盘（T4 结构性调整）：[`docs/retro/2026-10-26-bash-live-source.md`](docs/retro/2026-10-26-bash-live-source.md)
@@ -59,6 +61,7 @@ npm run verify
 4. **默认会话范围 = 全部会话**（ui-spec §4 与 A 板冲突，按 A 板裁决）。
 5. **插件不接管输入**：不向 PTY 写任何输入；唯一写操作是用户点「停止」。
 6. **跨会话聚合待真机验证**（scout U6）：服务语义允许按 owner 围栏读取，本机未实测；失败时按来源降级（chip 置灰 + 原因），不影响面板主体。
+7. **`⋯` 菜单只有 3 项**（复制命令 / 复制输出 / 固定展开）：ui-spec §3.7 的「在对话中定位」「在终端中打开（仅终端）」**本期不做**（Run 契约无 `turn/message` 引用；插件不接管宿主终端面板），替代见 contract §12.8。已知差异 L1–L5 见 contract §12.10。
 7. **非 live root 会话降级**：传入的 sessionId 无 live Agent 时返回**降级帧**（ok:true、树仅 root、`availability.tree.available=false`、空 runs），不是 `session-not-found`（仅语法非法才 coded 错误；contract v4 附录）。
 8. **terminal 的 `truncated`** 表示「该会话输出未完整覆盖（scrollback 裁剪或窗口未及最旧行）」，**不是分页未取完**；client 不得据此循环翻页（contract v4 附录）。
 

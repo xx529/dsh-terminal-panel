@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v4）
+# dsh-terminal-panel · 架构与契约（v4.1）
 
-> 状态：**v4（v3 冻结 + 附录补丁）** — 已吸收 scout T1 取证结论、Lead 五项裁决、tester 审计一致化（v3）；v4 只补充 backend 最终回执暴露的 3 条文档偏差（terminal `truncated` 语义、非 live root 降级帧、`computeTerminalDelta` k===0 不标 lossy）与 tester C1/C2/C5 的定案，不改代码。
+> 状态：**v4.1（v4 + T6 集成审计落字）** — 追加 H1（Tier2 livelock）保底规则、M1（「在对话中定位 / 在终端中打开」裁决不做）、M2（预算调度与选择集一致）实现约束与 LOW 已知差异表（§12.10）；仅文档，不改代码（H1 修复归 backend task-12，回归归 tester）。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -31,6 +31,7 @@
 | v2 | 2026-10-26 | 吸收 scout T1 全部结论：包清单修正（`manifestVersion`/`engines`/`exports ./icon`/`./locale`、`immediately` 语义、`dsh.client.inject` 语义）；客户端运行环境纠偏（平台表 11 键、无 `host.call`/`styles.insert`、样式自注入）；`terminals.read` 行坐标定案；前台 bash 改三层（过程输出不可得，`final-only`）；事件补充 `tools/post-execute` 与 `tools/result`；轮询自适应；`conversation.view` props/合并顺序精确化；元数据（icon/locale）交付；§12 五项裁决 + 已裁决限制；安装文档升级为证据版。 |
 | v3 | 2026-10-26 | tester 审计驱动的一致化：①帧预算三级单一语义（§4.3）；②`removed` 语义二分（§4.2 语义 5）；③§11.1/§11.2 冻结导出表；附 HIGH/LOW 缺陷归属与 §9 配置漂移对齐。 |
 | v4 | 2026-10-26 | 附录补丁（仅文档）：①`computeTerminalDelta` 的 **k<0** 才 lossy（k===0 是正常探尾，不标 lossy）；②terminal `truncated` = 输出未完整覆盖（`page.truncated \|\| lineEnd < totalLines`），不是分页未取完；③非 live root 会话返回**降级帧**而非 `session-not-found`（仅 sessionId 语法非法才 coded 错误）；④tester C1/C2/C5 定案，C3/C4 标 closed。 |
+| v4.1 | 2026-10-26 | T6 集成审计落字（仅文档）：①H1 保底规则（单 Run 元信息截断 ≤4 KiB + `metaTruncated`；Tier2 至少保留 1 条 Run；`nextCursors` 只前移实际交付字节）；②M1 裁决「在对话中定位 / 在终端中打开（仅终端）」本期不做（§12.8）；③M2 实现约束「预算调度与选择集必须是同一集合」；④LOW L1–L5 已知差异表（§12.10）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -61,6 +62,15 @@
 | A3 | 非 live root 会话（tester C1） | **降级帧优先于 `session-not-found`**：sessionId 合法但无 live Agent → `ok:true` 降级帧（`sessions` 仅 root、`availability.tree.available=false`、`runs:[]`）；**只有 sessionId 语法非法/缺失**才返回 `bad-request` 类 coded 错误（`session-not-found` 保留给「语法合法但服务端无此会话」的极端情况，不作为常规路径） | §4.4、§8 |
 | A4 | tester C5（`conversation.view` inject props） | **已核对一致**：v2 F28 已定 `inject` 返回 `{}`（或自定义字段），保留 props 由 renderer 以 owner props 注入且优先级最高；实现与契约一致，无需改动 | F28 |
 | A5 | tester C3（`removed` 语义）/ C4（帧预算口径） | **closed**：v3 已分别定案（§4.2 语义 5、§4.3 三级预算），本轮无新增改动 | §4.2、§4.3 |
+
+### v4.1 发布前裁决补丁（2026-10-26，T6 集成审计：H1 / M1 / M2 + LOW）
+
+| # | 项 | 落字 | 归属 |
+|---|---|---|---|
+| H1 | Tier2 单 Run 超限 livelock（Run 永不显示、`truncated` 永真） | §4.3 新增三条保底规则：①**元信息截断**（`command/cwd/detail/title` 各 ≤4 KiB，Run 标 `metaTruncated:true`）；②**Tier2 至少保留 1 条 Run**（与 Tier1 首条放行对称；该帧允许超 `maxFrameBytes`，但必须 < 262144；若仍超 Tier3，则 Tier3 **截断该 Run 的 output** 而非丢弃整条）；③`nextCursors` **只前移到实际交付字节**，被丢/被截断 Run 绝不前移 | 修复 backend（task-12）；回归 tester（`tests/host/panel.test.mjs`、`tests/host/frame.test.mjs`） |
+| M1 | ui-spec §3.7 的「在对话中定位」「在终端中打开（仅终端）」 | **裁决：本期不做**——Run 契约没有 `turn/message` 引用（无法可靠定位到对话节点），插件也不接管宿主终端面板；替代 = 复制命令 / 复制输出 / 固定展开。见 §12.8 | Lead 裁决；README「已知限制」同步 |
+| M2 | `planReads` 与 `takeEntries` 选择集错配（running > `maxRuns` 时首帧可能全空） | §4.3 增实现约束：**预算调度与选择集必须是同一集合**（同一候选集、同一排序、同一 `maxRuns` 截断方向），禁止一个函数取最旧 32、另一个取最新 32 | 修复 backend（task-12）；回归 tester（40 running 首帧有输出的用例） |
+| L1–L5 | 硬编码中文 / 行高与停止按钮像素偏差 / hello 未发 `idlePollHintMs`·`budgetMode` / `formatCountdown` 文案 / 测试桩 `ctx.on` | 见 §12.10「已知差异」表：L1 归 frontend 后续，L2/L3/L4 不修（可接受），L5 已修 | 见 §12.10 |
 
 ---
 
@@ -366,8 +376,8 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 | 层 | 实现 | 口径 | 触发 | 裁剪方式 |
 |---|---|---|---|---|
 | Tier1（主口径） | `planReads` → `buildPollFrame` | **输出文本字节**累计 ≤ `maxFrameBytes`（默认 65536，配置夹取 1024–1048576） | 每帧都跑 | 逐 Run 累加输出文本字节；超预算的 Run **整条跳过**（不半截），排在前面的小 Run 仍可进入；**第一条 Run 永远放行**（避免大输出饿死整帧）；被跳过的 Run 记入 `dropped`，不写 `nextCursors` |
-| Tier2（同参数兜底） | `boundFrame(value, maxFrameBytes)` | **整帧 JSON 字节** ≤ 同一 `maxFrameBytes` | 仅当 Tier1 通过、但 JSON 元信息使整帧仍超限 | 从尾部**整 Run 丢弃**直到 ≤ 上限，置 `truncated:true`，并删除被丢 Run 的 `nextCursors`；调用方必须把这些 Run 退回注册表（`store.restore`）且**不提交游标**（下轮续读，绝不丢字节） |
-| Tier3（传输硬上限） | `route.boundResponseValue(value, maxResponseBytes = 262144, previousCursors)`（`maxResponseBytes` 是固定常量，不配置） | **整帧 JSON 字节** ≤ 262144 | 仅当 Tier2 后仍超限（异常大数据/元信息） | 从尾部整 Run 丢弃直到 ≤ 上限，置 `truncated:true`；被丢 Run 的 `nextCursors` **回退为客户端上一轮游标**（无上一轮则删除），保证客户端不跳过未交付字节 |
+| Tier2（同参数兜底） | `boundFrame(value, maxFrameBytes)` | **整帧 JSON 字节** ≤ 同一 `maxFrameBytes` | 仅当 Tier1 通过、但 JSON 元信息使整帧仍超限 | 从尾部**整 Run 丢弃**直到 ≤ 上限，置 `truncated:true`，并删除被丢 Run 的 `nextCursors`；调用方必须把这些 Run 退回注册表（`store.restore`）且**不提交游标**（下轮续读，绝不丢字节）。**H1 保底**：至少保留 1 条 Run（与 Tier1 首条放行对称）；裁剪后若为 0 条，保留原首条并允许整帧超 `maxFrameBytes`，但必须 < 262144 |
+| Tier3（传输硬上限） | `route.boundResponseValue(value, maxResponseBytes = 262144, previousCursors)`（`maxResponseBytes` 是固定常量，不配置） | **整帧 JSON 字节** ≤ 262144 | 仅当 Tier2 后仍超限（异常大数据/元信息） | 从尾部整 Run 丢弃直到 ≤ 上限，置 `truncated:true`；被丢 Run 的 `nextCursors` **回退为客户端上一轮游标**（无上一轮则删除），保证客户端不跳过未交付字节。**H1 保底**：若仅剩的 1 条 Run 仍超限，**截断该 Run 的 `output` 文本**（按需置 `truncated`/`lossy`）而非丢弃整条元信息——绝不出现「单 Run 永远无法交付」的 livelock |
 
 其余规则：
 
@@ -378,8 +388,10 @@ interface KillResult { outcome: 'requested' | 'already-finished' | 'unsupported'
 | 超长 Run 数 | running > `maxRuns`(32) 时只返回前 32 个 running + 最近 `completedLimit` 条终态（UI 显示「另有 N 个未显示」） |
 | 标记语义 | `truncated`（bash tee / job 通道）= 本帧没发完（可续读，**不丢数据**）；`lossy` = 数据已丢（不可恢复）。两者不可混用。**terminal 专用（v4）**：`TerminalDelta.truncated = page.truncated \|\| lineEnd < totalLines`，表示**该会话输出未被完整覆盖**（scrollback 裁剪，或窗口未及最旧行），**不是「本帧没发完 / 分页未取完」；client 不得据此循环翻页**（历史靠本地缓冲 + 手动上翻） |
 | `budgetMode?` | 可选字段 `'text' \| 'frame'`：`'text'`（缺省）= 本帧未触发整帧 JSON 兜底；`'frame'` = 本帧被 Tier2/3 按整帧 JSON 口径裁剪。**当前实现未发该字段（省略即 `'text'`），client 不得依赖；backend 可在 Tier2/3 裁剪时补发（v3 允许，向后兼容）** |
-| `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次） |
-| 饥饿保护 | Tier1 首条 Run 永远放行；`focusRunId` 在 `planReads` 中优先分配预算（放大弹窗/活动列不被饿死） |
+| `nextCursors` 一致性（硬不变量） | ① 只包含**本帧实际交付**的 Run；② 每个通道游标 ≤ 已交付字节数（terminal 为已交付 `totalLines` 基线），**不得前移到未交付位置**；③ 被 Tier1 跳过的 Run 不出现（client 沿用旧游标）；④ 被 Tier2 丢弃的 Run 不出现（且退回注册表，下轮重发）；⑤ 被 Tier3 丢弃的 Run 回退为客户端上一轮游标；⑥ `truncated:true` 时 client 必须立即用 `nextCursors` 续读（同 tick ≤3 次）。**H1 重申**：⑤/⑥ 同样适用于「Tier3 截断 output 而非丢 Run」的情况——游标只前移到实际交付的字节，**绝不因截断而越过未交付字节** |
+| 元信息上限（H1） | `command`/`cwd`/`detail`/`title` 在序列化前各截断到 **≤ 4096 字节**（保留头部、不切半个码点），Run 置 `metaTruncated:true`；UI 单行省略 + tooltip 展示。目的：把单 Run 的 JSON 元信息控制在 Tier2 预算内（默认 65536 下即使超长 heredoc 命令也不会 livelock）。v3 冻结表不变（`metaTruncated` 为 Run 的新可选字段） |
+| 选择集一致（M2） | **预算调度与选择集必须是同一集合**：`planReads` 的候选集合、排序、`maxRuns` 截断方向必须与 `takeEntries` 完全一致（同一集合、同一排序、同一端截断），禁止一个取最旧 32、另一个取最新 32。修复归 backend（task-12），回归归 tester：40 个 running 时首帧 32 列中必须有输出（不得交给下一帧补齐） |
+| 饥饿保护 | Tier1 首条 Run 永远放行；Tier2 至少保留 1 条 Run（H1 保底）；`focusRunId` 在 `planReads` 中优先分配预算（放大弹窗/活动列不被饿死） |
 
 ### 4.4 错误码表
 
@@ -493,6 +505,7 @@ interface Run {
   exitCode?: number | null
   signal?: string | null
   detail?: string            // 失败原因 / kill 原因 / 'final-only'
+  metaTruncated?: boolean    // H1：command/cwd/detail/title 任一被截断到 ≤4096B 时为 true
   handle: RunHandle
   stoppable: boolean
   totals: { stdout?: number; stderr?: number; job?: number; terminal?: number }
@@ -937,7 +950,7 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - 接受限制：无 `ShellExecution` 句柄 → 过程输出默认不可得。UI 对 `outputMode:'final-only'` 的 Run 显示「仅终态」徽标，终态输出一次性出现；停止按钮禁用。
 - 若用户需要实时输出 → 引导用后台 job（`run_in_background`）走 `ctx.jobs`（天然增量）；`bashCapture` tee 保留为 best-effort，未来若 harness 提供句柄回调可无缝升级为 live。
 
-### 12.8 已裁决限制汇总（写进 README/验收）
+### 12.8 已裁决限制与「不做」项汇总（写进 README/验收）
 
 1. tab 无角标（计数在工具栏）。
 2. 终端非 xterm 屏幕帧，全屏 TUI 退化为文本流。
@@ -945,6 +958,13 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 4. 默认会话范围 = 全部会话。
 5. 插件不接管输入；唯一写操作是「停止」。
 6. 跨会话聚合的实测验证列在 backend 冒烟（scout U6）。
+
+**已裁决不做的 UI 项（M1，2026-10-26）**：
+
+| UI 项（ui-spec §3.7 `⋯` 菜单） | 裁决 | 原因 | 替代 |
+|---|---|---|---|
+| 「在对话中定位」 | **本期不做** | `Run` 契约没有 `turn/message` 引用（无法可靠跳回对话节点）；补引用需改数据源契约，超出本期范围 | 「复制命令」/「复制输出」/「固定展开」（已实现）+ 面板筛选/搜索可近似定位 |
+| 「在终端中打开（仅终端）」 | **本期不做** | 插件只读、不接管宿主终端面板；复用宿主终端需要跨插件 API（不在平台模块表/本契约内） | 「复制输出」后在宿主侧边栏终端自行查看 |
 
 ### 12.9 仍未确认项（scout U2/U4/U6/U8，不阻塞 v2）
 
@@ -954,6 +974,18 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | U6 | 跨 session 读 jobs/terminals 是否真被允许 | 多会话聚合核心 | backend 冒烟用真实子会话验证 |
 | U8 | Desktop 重启/生效路径与 watcher 覆盖 workspace | 迭代成本 | 首次安装后记录到 install.md |
 | U2 | `label` 返回 ReactNode 能否做角标 | 仅角标 | 低优先级，不改 v2 |
+
+### 12.10 已知差异（LOW，T6 集成审计 L1–L5；v4.1 落字）
+
+> 本表是 LOW 差异的唯一登记处。处置口径：**不修（可接受）** = 本期不做、已知风险可接受；**后续** = 归 owner 排期；**已修** = 已随前面 commit 关闭。
+
+| ID | 差异 | 处置 | 依据 / 备注 |
+|---|---|---|---|
+| L1 | 部分 UI 文案硬编码中文未走 locale：停止相关 toast（`已请求停止/该任务已结束或不可见/该来源不支持停止`）、lossy 缺口标记（`（已丢失 N 字节/行）`） | **后续（owner: frontend）** | en 界面会显示中文；不影响功能。非阻塞，可在下一次 frontend 改动时顺手 locale 化 |
+| L2 | 像素偏差：命令行高度 24px vs 规格 22px；停止按钮 18px vs 规格 16×16 | **不修（可接受）** | 视觉差 2px，待真机与 Figma A 板叠图后确认；如不通过由 frontend 调 CSS（不属于契约/逻辑缺陷） |
+| L3 | `hello.limits` 未发 `idlePollHintMs`；`budgetMode` 未发 | **不修（可接受）** | 契约 §4.3/§4.5 已标注可选，client 有常量兜底；无功能影响 |
+| L4 | `formatCountdown` 纯函数硬编码 `'s 后收起'` | **不修（可接受）** | 纯函数契约输出（tester 依赖）；UI 实际使用 locale `collapse.in`，非 UI 缺陷 |
+| L5 | T5 测试桩 `ctx.on` 曾返回 `{dispose}` 对象（真实 cordis 为函数） | **已修** | `tests/helpers/fakes.mjs` 已修正；仅测试夹具，不影响生产 |
 
 ---
 
