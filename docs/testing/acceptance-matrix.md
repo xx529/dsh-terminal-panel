@@ -262,3 +262,15 @@ node tests/e2e/smoke.mjs
 | A32 | 收起只发生一次 layout shift + 平滑滑动（ghost 原位 180ms + 其余 FLIP 200ms，无二次反向重排；同帧 >2 跳过 fade） | auto（静态/逻辑）+ manual（交互） | `client/v10.test.mjs::A31 同步 ghost…`、`FLIP：测量集合含 ghost…`、`多卡同帧移除 >2…`、`ghost 定时清理…` | 逻辑 **PASS**；真机交互 **Unverified** |
 | A33 | reduced-motion 瞬时（无 ghost 占位、无 FLIP/fade） | auto（静态）+ manual | `client/v10.test.mjs::A31 FLIP…reduced-motion 瞬时`（`prefersReducedMotion() return` + CSS 关动画 + render 期清 ghost） | 静态 **PASS**；真机 **Unverified** |
 
+## 16. ui-spec v9 A34–A38 映射（v11 P0 会话隔离；待 T59 落稿后核对条目文字）
+
+> 说明：T59（契约 v11 + ui-spec v9）尚未完成，当前 `docs/design/ui-spec.md` 仍为 v8。本表按 Lead T60 任务单与 scout §E 先行映射；T59 落稿后如条目措辞变化需同步本表。
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A34 | A/B 会话互不可见 | auto（Host 集成 + 客户端纯函数）+ manual | `host/v11-isolation.test.mjs::A34 帧隔离…`（B 帧不含 A 的 job/terminal run、owner 全 ∈ B 树、诊断计数）、`A34/A35 terminal 隔离…`；`client/v11.test.mjs::A36 帧内隔离…`（mergePoll 过滤异会话 runs/sessions） | Host/Client **PASS**；真机 **Unverified** |
+| A35 | 切回 A 数据完整且不被 B 偷增量/删数据 | auto（Host）+ manual | `host/v11-isolation.test.mjs::A35 A 的未交付增量不被 B 偷取…`（B poll 后 A 续收 6000B）、`A36 removed 不跨会话…` | Host **PASS**；真机切回 **Unverified** |
+| A36 | 异会话迟到帧被丢弃且界面不闪 | auto（mergePoll/静态）+ manual | `client/v11.test.mjs::A36 异会话帧：mergePoll 整帧丢弃并返回原 state 引用…`、`A36 兼容旧 Host…`、`A36 帧入口防御…`（noteCrossSessionFrame + warn 一次 + notice） | 纯函数/静态 **PASS**；真机迟到帧 **Unverified** |
+| A37 | removed/prune/resync 不跨会话 | auto（Host + 缓存静态）+ manual | `host/v11-isolation.test.mjs::A36 removed…`、`A37 prune…`、`A37 resync 隔离…`；`client/v11.test.mjs::A37 缓存隔离…`（CACHE_VERSION/sanitize/save 拒绝）、`A37 切会话…` | Host/缓存 **PASS**；真机时序 **Unverified** |
+| A38 | 诊断可见（frameSessionId/droppedForeignRuns 等） | auto（Host + 静态）+ manual | `host/v11-isolation.test.mjs::A34 帧隔离…`（frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent）；`client/v11.test.mjs::A38 诊断摘要…` | Host/静态 **PASS**；真机 Network/Console **Unverified**（步骤见 report §16.4） |
+

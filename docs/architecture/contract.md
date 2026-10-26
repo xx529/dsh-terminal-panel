@@ -1,6 +1,6 @@
-# dsh-terminal-panel · 架构与契约（v10）
+# dsh-terminal-panel · 架构与契约（v11）
 
-> 状态：**v10（v9 + 视觉/结构增量）** — 真机反馈（边框太细、卡片宽窄不齐/最后一行被拉伸、点收起时卡片瞬移跳变）+ Lead 裁决；T52 Client 实现（纯客户端展示层）。v10 新增：状态边框**生效 2px**（hover/focus 用 inset shadow 视觉加粗、不改尺寸）、执行区改为 **CSS grid `auto-fill` 统一列宽**（**禁 auto-fit**；最后一行单卡保持同宽不拉伸；拖右缘 = 统一列宽 280–640）、重排动效改为**渲染期同步 ghost + 插回原槽位 FLIP**（替换 v8/v9 的晚一帧 ghost）；§11.2 **保持 53 键**；§12.12 R15/R16。
+> 状态：**v11（v10 + P0 会话隔离）** — 真机/审计发现**跨会话数据泄漏**（单实例单 store 却按全局选择帧/增量/removed/prune/resync），Lead 裁决 v10→v11（协议/安全语义变更）；T57 Host / T58 Client 实现。v11 新增：**所有帧与 store 操作必须按 `sessionIds`（会话树：root+子代理+队友）隔离**（§14）；`terminalScopes` 收紧为**只等于会话树**（v9「树外 owner 升级 live」**作废**，R17）；diagnostics 增 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`；客户端纵深防御（异会话帧整帧丢弃、`mergePoll` 过滤、`SESSION_CACHE_VERSION='v11-1'`+sanitize、切会话清瞬时态）；§11.1.1 冻结表更新、§11.2 **保持 53 键**；§12.12 R17。
 > 设计基线：`docs/design/ui-spec.md`（v4）+ Figma A–F 六板（`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`）
 > 读者：backend（T3）、frontend（T4）、tester（T5）、audit（T6）
 > 标注口径：`[FACT]` 有可核对证据（附 asar 路径/行号、README 小节或 live inspect）；`[INF]` 由 Fact 推导并写明依据；`[ASSUMPTION]` 未证实，写明验证方式。
@@ -38,6 +38,7 @@
 | v8 | 2026-10-26 | **客户端展示层增量（host 协议不变）**：客户端会话状态缓存（`SESSION_CACHE` LRU 4/TTL 30min）；Run 展示三态（running→linger→completed，**替换** v7「新终态自动展开分组」）；执行区网格自动换行 + 纵向滚动（**废弃** v5 横向滑动/滚动条/右侧溢出按钮）；fade+scale 180ms + FLIP 200ms 补位（仅 transform/opacity，reduced-motion 瞬时）；首帧前 skeleton 加载态；§11.2 冻结表 v8 增补；§12.12 R9/R10 两条新裁决；ui-spec 升 v6（A14–A20）；另含 **host 一致性补丁**（v8 追加）：`poll.resync`、`removed`/`runs` 同帧互斥 + `prune(protect)`、`revision` 回退=重建（§8.6/§12.12 R11/R12）；ui-spec 追加 A21/A22。 |
 | v9 | 2026-10-26 | **真机可达性/视觉增量（替换关系）**：已完成行展开改由 `view.group.expandedIds` 驱动、已完成行**不再渲染** v7 倒计时/进度条（样式/词典暂留，测试兼容；替换 v7 collapse 复用）；执行区**按行等宽铺满**（CSS flex，基准 352、拖 280–640、窄容器单列、无横向滚动，**替换 v8 固定宽自动换行**）；状态色板（黄=进行中/绿=已完成/红=失败）；terminal tier1 Agent 解析扩为 `scopes ∪ store terminal ownerSessionId`（树外 owner 可 `meta-only→live`）；`diagnostics` 增 `agentsService`/`agentsProbe`/`terminalOwners`；§11.2 冻结表**不变（53 键）**；§12.12 R13/R14；ui-spec 升 v7（A23–A28）。 |
 | v10 | 2026-10-26 | **视觉/结构增量（替换关系，纯客户端）**：`.tp-col`/`.tp-row` 状态边框**生效 2px**（running warn 65% / linger·completed success 60% / failed error 65%；hover/focus 用 `inset box-shadow` 视觉加粗、**不改盒尺寸**）；执行区 **CSS grid `repeat(auto-fill, minmax(min(100%, var(--tp-card-w,352px)), 1fr))` + gap:12px**（**禁 auto-fit**；所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一列宽 280–640 会话级持久化，不再支持每卡独立宽；容器 <716px 单列单卡占满为已知边界）；重排动效替换为**渲染期同步派生 ghost + 按原 orderIndex 插回槽位**，180ms 淡出后其余卡 FLIP 200ms；signature=`activeKey\|exitingKey`（不含 gridWidth），`useLayoutEffect` 比较 arm；同帧移除 >2 张跳过 fade；reduced-motion 瞬时；§11.2 **保持 53 键**；§12.12 R15/R16；ui-spec 升 v8（A29–A33）。 |
+| v11 | 2026-10-26 | **P0 会话隔离（协议/安全语义变更）**：单实例单 store 下，**poll 帧/增量消费/removed/prune/resync 全部按 `sessionIds`（本会话树）隔离**（`frameSelection({sessionIds})`/`takeEntries({sessionIds})`/`drainRemoved(sessionIds)`/`prune(now,{protect,sessionIds})`/`resync({sessionIds})`/`mergeClientCursors(cursors,sessionIds)`）；`removed` 改为 `Map<runId,ownerSessionId>` 按会话 drain；`terminalScopes` 收紧为**只等于会话树**（**v9「树外 owner 升级 live」作废**；树外 owner 不展示/不解析，计 `droppedForeignRuns`；`tests/host/v9-owner.test.mjs` 3 条 A27 已按 v11 改写，Lead 批准，见 `docs/testing/report.md` §16.2）；diagnostics 增 5 字段；客户端异会话帧整帧丢弃 + `mergePoll` 过滤 + `SESSION_CACHE_VERSION="v11-1"` + sanitize + 切会话清瞬时态；§11.1.1 更新签名、§11.2 保持 53 键；§12.12 R17；ui-spec 升 v9（A34–A38）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -122,7 +123,7 @@
 | `Run.inputs?` | `string[]` | **仅 terminal** | 初始为 terminal 名称（`terminal_open` 的 name / snapshot.name），随后追加捕获的 `terminal_send` 文本；**保留最后 20 条、单条 ≤2 KiB、合计 ≤8 KiB**，超出丢最旧。bash/job **不新增**该字段（Client 从 `run.command` 推导输入块） |
 | `Run.notice?` | `{ code: NoticeCode; message: string }` | 全部来源（当前仅 terminal 使用） | 降级提示；`NoticeCode = 'terminal-no-agent' \| 'terminal-read-failed' \| 'terminal-controller-unavailable'`（可扩展，Client 未知 code 按通用提示渲染）。**v7 实现口径**：实际只产出 `terminal-no-agent` / `terminal-read-failed`；`terminal-controller-unavailable` 为**保留值**（`sidebarTerminals` 默认关闭时不产生；开启且 controller 缺失时原因写在 `diagnostics.terminals.reason`）。UI 在输入块**上方**显示一行次要色提示，不阻断阅读 |
 | `Run.outputMode` | 新值 `'meta-only'` | terminal | **v7 定义**：无 live Agent、**读不到连续实时输出**；但**可能有 tier3 事件片段输出**（`terminal_open.motd` / `terminal_send.viewport` / `terminal_read.text` 追加进 `output`）——这些片段**非实时全量**，UI/校验必须标注来源与「片段」语义，**不得**据此判定为实时流完整。UI 显示输入块 + notice + 片段/空输出文案 |
-| `PollResult.diagnostics` | object（**每帧必带**） | 全部帧 | `{ rootSessionId, agentFound, agentCount, scopes, terminals{ candidates, source:'terminals'\|'sidebar'\|'events'\|'none', reason? }, agentsService:boolean, agentsProbe:{ getOk:boolean, identityOk:boolean, sampleIds:string[] }, terminalOwners:{ captured,alive,inScope,outOfScope } }`（v9 扩展；实现另含 agentsAccess/sessionIdMatchesAgent/terminalScopes/tier1Terminals/metaOnlyTerminals/owner* 等定位字段，见 §4.2 TS 定义）；`'sidebar'` 仅当显式开启 terminalController（默认关）时出现；体积小、必须发送（旧客户端忽略）。这是下一轮真机定位的唯一证据来源 |
+| `PollResult.diagnostics` | object（**每帧必带**） | 全部帧 | `{ rootSessionId, agentFound, agentCount, scopes, terminals{ candidates, source:'terminals'\|'sidebar'\|'events'\|'none', reason? }, agentsService:boolean, agentsProbe:{ getOk:boolean, identityOk:boolean, sampleIds:string[] }, terminalOwners:{ captured,alive,inScope,outOfScope } }`（v9 扩展；v11 另含 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent` 与 agentsAccess/sessionIdMatchesAgent/terminalScopes/tier1Terminals/metaOnlyTerminals/owner* 等定位字段，见 §4.2 TS 定义）；`'sidebar'` 仅当显式开启 terminalController（默认关）时出现；体积小、必须发送（旧客户端忽略）。这是下一轮真机定位的唯一证据来源 |
 
 #### 7.2 终端发现链路（v7 纠偏版；替换 §5.2 terminal 行的「发现」列，其余列语义不变）
 
@@ -249,11 +250,12 @@ running ──终态──► linger（10s 滞留：倒计时 + 「收起」按�
 - **生效边框宽度 = 2px**（`.tp-col` / `.tp-row` 后置 `border-width:2px` 覆盖旧 1px；**旧 1px 字符串保留仅供 v8/v9 静态断言兼容**，文档/验收以「生效 2px」为准）。颜色 mix：running warn **65%**、linger/completed success **60%**、failed error **65%**（其余与 `--dsw-alias-border-l1` 混合）。
 - hover/focus：`border-color` 提升至 **92%** + `box-shadow: inset 0 0 0 1px`（约 45% 透明）做**视觉加粗**；**不得改 `border-width`/`width`/`height`/`padding`**（`box-sizing:border-box` + 固定 342 高，FLIP 测量不抖）。
 
-#### 9.4 terminal tier1 Agent 解析范围（host 语义变更，向后兼容）
+#### 9.4 terminal tier1 Agent 解析范围（v11 收紧：只允许会话树）
 
-- `ctx.terminals.list/read` 的 Agent 解析范围从「仅会话树 `scopes`」扩为 **`scopes ∪ store 中已有 terminal Run 的 ownerSessionId`**。
-- 树外 owner 命中 `agents.get(owner)`（live Agent）→ 走 tier1 读输出、**清 `notice`**、`outputMode: 'meta-only' → 'live'` 升级；未命中保持 meta-only + notice（**仍显示，不删 Run**）。
-- 背景：真机 TERM 全部 meta-only 的根因是 owner 在树外（scout T42 强 INFERENCE）；tier1 不再因「不在会话树内」排除。
+- **v11 起**：`ctx.terminals.list/read` 的 Agent 解析范围**严格等于会话树 `scopes`**（root + 子代理 + 队友），**不再**并入 `store` 全量 terminal owner（**v9「树外 owner 升级 live」作废**，见 §12.12 R17）。
+- 树外 owner 的 terminal Run **不展示、不解析、不读输出**（计入 `diagnostics.droppedForeignRuns`），避免跨会话泄漏；`terminalScopes` 仅等于会话树长度。
+- 清理：`knownSessionIds` 只清理「本 root 曾见、现已离开会话树」的 terminal Run；**从未见过的其它会话 Run 绝不清理**。
+- 未来项：若取得**可靠血缘**（`session.header.parentSession` 上溯到 root / `agentTeams.tryMembership(agent).root === rootSessionId`）可在 v12 评估放开；当前实现**未实现血缘放开**（仅收紧）。
 
 #### 9.5 诊断扩展（`PollResult.diagnostics` 追加字段）
 
@@ -559,6 +561,12 @@ interface PollResult {
 
 // v7
 interface PollDiagnostics {
+  // ── v11 会话隔离诊断（每帧必带；向后兼容）──
+  frameSessionId: string            // 本帧归属会话（=请求 sessionId；客户端必须与本地 sessionId 比对）
+  allowedSessions: number           // 本帧允许 owner 集合大小（=会话树 ids 数）
+  scopedRuns: number                // store 中 owner ∈ 允许集的 Run 数
+  droppedForeignRuns: number        // store 中 owner ∉ 允许集、被本帧过滤掉的 Run 数（不得泄漏其内容）
+  removedSent: number               // 本帧 removed 数量（与 frame.removed.length 一致）
   rootSessionId: string
   agentFound: boolean               // ctx.agents.get(sessionId) 是否拿到 live Agent
   agentCount: number                // 可见会话树中的 agent 数
@@ -1016,6 +1024,14 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 - **保护**：`dragRef` 拖动中不 arm FLIP；同帧移除 **>2 张**跳过 fade（多 ghost 同槽排序不稳）；`prefers-reduced-motion: reduce` 无 ghost 占位、无 FLIP（瞬时）。
 - **已知边界**：ghost 只保留 180ms，多卡同时退场时超出 2 张不做 fade（避免长时间占位/排序抖动）。
 
+### 6.11 跨会话帧防御与切会话清理（v11，客户端纵深防御）
+
+- **帧级校验**：`frame.sessionId !== 本地 sessionId` → **整帧丢弃**（不 merge、不改 view/revision/游标）；`console.warn` **限流一次**；poll / 分帧续读 / resync 走**同一入口**（`noteCrossSessionFrame`）。
+- **reducer 纵深**：`mergePoll(state, frame)` 若 `frame.sessionId` 与 `state.sessionId` 不同 → 返回原 `state`，**不得改写 `view.sessionId`**；帧内 `runs/sessions` 按 `sessionTreeIds`（root + 后代 BFS）过滤。
+- **缓存版本 + 消毒**：`SESSION_CACHE` key = `sessionId + '@v' + SESSION_CACHE_VERSION`（v11 为 `'v11-1'`）；restore 用 `sanitizeCachedView` 只保留本会话树 owner 的 runs/columns/order/cursors/sessions；`cacheSaveSession` **拒绝异会话 view**；旧版本缓存（可能含泄漏内容）不读。
+- **切会话**：清瞬时态（ghost / timers / FLIP refs / undo / armed / drag / 最大化弹窗）后按新会话重建 view 与游标；不得沿用上一会话的缓存。
+- **已知残留（INFO，v12）**：`mergePoll` 合并 `nextCursors` 时未按 `allowedOwners` 过滤；Host v11 已不返回异会话 `nextCursors`，无实际泄漏，列未来项。
+
 ---
 
 ## 7. 筛选
@@ -1184,12 +1200,15 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 | 模块导出（既有） | `createRunStore` | `(options?: { completedLimit?: number; retainCompletedMs?: number; now?: () => number }) => StoreApi` | 创建 Run 注册表 |
 | 模块导出（既有） | `textBytes` | `(text: string) => number` | UTF-8 字节数（多处 re-export） |
 | 模块导出（既有） | `kindWeight` | `(kind: string) => number` | Run 类型排序权重 |
-| Store 实例方法（新增，M2） | `frameSelection` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string }) => object[]` | **唯一选择集**（focus → running startedAt 升序前 N → completed）；`planReads` 必须用同一集合 |
-| Store 实例方法（新增，M2） | `selectForFrame` | 同 `frameSelection`（**别名**） | 语义等价，供调用方按可读性选用 |
+| Store 实例方法（新增，M2；v11 加 `sessionIds`） | `frameSelection` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string; sessionIds?: Iterable<string>\|Set<string> }) => object[]` | **唯一选择集**（focus → running startedAt 升序前 N → completed）；v11：给出 `sessionIds` 时只选 `ownerSessionId ∈ allowed`（帧隔离） |
+| Store 实例方法（新增，M2；v11 同参） | `selectForFrame` | 同 `frameSelection`（**别名**，含 v11 `sessionIds`） | 语义等价，供调用方按可读性选用 |
 | Store 实例方法（新增，H1） | `commitCursorsFromFrame` | `(nextCursors?: Record<string, object>) => void` | 只按**本帧实际交付**的 `nextCursors` 提交游标（Tier2/3 裁剪后唯一可信来源） |
 | 模块导出（v7 新增纯函数） | `normalizeNotice` | `(notice: unknown) => { code: string; message: string } \| undefined` | 归一化 `Run.notice`（只保留 code/message 字符串；code 空 → undefined） |
-| Store 实例方法（v8 新增） | `prune` | `(now?: number, options?: { protect?: Set<string>\|string[] }) => string[]` | 淘汰过期终态；**`protect` = 本帧 discovery 已见 runId，不得 prune**（防 removed/re-upsert 抖动）；返回本次移除的 runId |
-| Store 实例方法（v8 新增） | `resync` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string }) => string[]` | 全量重同步：可见选择集 Run `metaDirty` + 读游标回退保留窗口起点；**不产生 removed**；返回被重置 runId（供 prune 保护） |
+| Store 实例方法（v8 新增；v11 加 `sessionIds`） | `prune` | `(now?: number, options?: { protect?: Set<string>\|string[]; sessionIds?: Iterable<string>\|Set<string> }) => string[]` | 淘汰过期终态；`protect` = 本帧 discovery 已见 runId（不得 prune）；v11：只淘汰 `owner ∈ sessionIds`，**其它会话全量跳过**（每会话配额）；返回本次移除 runId |
+| Store 实例方法（v8 新增；v11 加 `sessionIds`） | `resync` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string; sessionIds?: Iterable<string>\|Set<string>; allowedSessionIds?: Iterable<string>\|Set<string> }) => string[]` | 全量重同步：**只重置本会话**可见 Run（`metaDirty` + 读游标回退）；**不产生 removed**；返回被重置 runId（供 prune 保护） |
+| Store 实例方法（v11 新增） | `takeEntries` | `(options?: { includeCompleted?: boolean; maxRuns?: number; focusRunId?: string; sessionIds?: Iterable<string>\|Set<string> }) => Array<{ run: object; output: object }>` | 按同一选择集**消费本会话 pending 增量**（禁止偷其它会话未交付增量） |
+| Store 实例方法（v11 新增） | `mergeClientCursors` | `(incoming: Record<string, object>, sessionIds?: Iterable<string>\|Set<string>) => void` | 合并客户端游标；给出 `sessionIds` 时**忽略异会话游标** |
+| Store 实例方法（v11 新增） | `drainRemoved` | `(sessionIds?: Iterable<string>\|Set<string>) => string[]` | 取出 removed；内部 `Map<runId,ownerSessionId>`；给出 `sessionIds` 时**只取本会话并保留其余**；无参=全量（兼容旧调用） |
 
 #### 11.1.2 `capture-terminals.mjs` v7 新签名（集成模块，**不冻结**但列全供集成用例对齐）
 
@@ -1205,7 +1224,7 @@ running ──终态──► linger ──(10s 到期 | 点「收起」)──�
 
 `scripts/smoke-host.mjs`（backend）用 mock ctx 跑通路径：「bash 增量/终态（tee 可用与不可用两种）」与「job 列表 → 终态」，另加「terminal 行增量→去重→裁剪」；退出码 0。
 
-### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9/v10 不变：53 键；两版客户端改动均为纯 CSS/渲染内部实现，未新增导出）
+### 11.2 Client 纯函数（不得 import React）与 `__internals` **冻结表**（v9/v10/v11 均不变：53 键；v11 客户端为纵深防御/缓存消毒内部实现，未新增导出）
 
 **仍然采用 v1 的单文件 + `__internals` 方案**（frontend 写作用域不含 `scripts/**`，禁止装打包器）：
 
@@ -1405,6 +1424,7 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | R14 | **树外 owner 不由 tier1 排除**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；命中即清 notice、`meta-only→live` | 真机 TERM 全部 meta-only，根因 owner 在树外（scout T42） | §5.2/§7.2/§9.4；tester mock 树外 owner live 用例 + diagnostics.terminalOwners |
 | R15 | **网格 `auto-fill` 统一列宽**：所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一 `--tp-card-w`（280–640），不再支持每卡独立宽；**禁 auto-fit** | 真机：卡片宽窄不齐、最后一行被拉满；每卡独立宽难对齐 | ui-spec v8 §2.1/§9 A31；tester 静态断言 grid/auto-fill/gap/align-content + 拖拽写统一值 |
 | R16 | **重排动效 = 渲染期同步 ghost + 插回原槽位**（替换 v8/v9 晚一帧 ghost） | 真机：点收起卡片瞬移/二次反向重排；晚一帧 ghost 把退场卡推末尾 | ui-spec v8 §3/§9 A32；tester 断言 ghost 同步派生/原 index/FLIP 含 ghost/signature 不含 gridWidth |
+| R17 | **terminal owner 政策收紧（P0 会话隔离）**：tier1 只允许**会话树 ids**；**v9「树外 owner 升级 live」作废**；树外 owner 不展示/不解析，计 `droppedForeignRuns`；可靠血缘放开为 v12 未来项（当前未实现） | P0：v9 的 union 会让 store 全量 owner 进入本会话帧，造成跨会话泄漏；且真机 A/B 会话互相看到 runs | §9.4/§14.6；`tests/host/v9-owner.test.mjs` 3 条 A27 按 v11 改写（Lead 批准，report §16.2）；`tests/host/v11-isolation.test.mjs` 7 条 |
 
 ---
 
@@ -1437,6 +1457,10 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v10 2px 边框**：`.tp-col`/`.tp-row` 生效 `border-width:2px`（旧 1px 仅测试兼容）；running warn 65%、linger/completed success 60%、failed error 65%；hover/focus 只加 `box-shadow: inset 0 0 0 1px`、不改尺寸。
 - [ ] **v10 grid auto-fill**：`repeat(auto-fill,minmax(min(100%,var(--tp-card-w,352px)),1fr))` + gap 12 + align-content:start；**禁 auto-fit**；最后一行单卡不拉伸；拖右缘写统一 `--tp-card-w`（280–640）；容器 <716px 单列。
 - [ ] **v10 同步 ghost**：ghost 渲染期派生并插回原槽位；FLIP 测量含 ghost；`layoutSignatureRef=activeKey|exitingKey` 在 `useLayoutEffect` 比较；同帧 >2 张跳过 fade；reduced-motion 无 ghost/无 FLIP。
+- [ ] **v11 会话隔离（P0）**：所有 store 选择/增量/removed/prune/resync/cursors 传 `sessionIds`（会话树）；`drainRemoved` 用 `Map<runId,owner>` 按会话取；`prune` 每会话配额、异会话全量跳过；`resync` 只重置本会话；帧内 `removed` 与 `runs` 互斥（runs 优先）仍成立。
+- [ ] **v11 terminal owner 收紧**：`terminalScopes` = 会话树；树外 owner 不展示/不读；`knownSessionIds` 只清理「本 root 曾见并离开」；诊断 `droppedForeignRuns/terminalScopes` 可核对。
+- [ ] **v11 客户端防御**：异会话帧整帧丢弃（限流 warn 一次）；`mergePoll` 不跨会话改写 `view.sessionId`；缓存 key 含 `v11-1` 且 restore sanitize；切会话清 ghost/timers/FLIP/undo/armed/drag/最大化。
+- [ ] **v11 诊断**：`frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent` 每帧必带，`removedSent === frame.removed.length`。
 
 ### 13.2 frontend（T4）v2/v3 增补
 
@@ -1484,3 +1508,51 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] 每条装配失败路径都有 `logger.error`（或 `logger.warn` 降级日志）+ `throw`，无静默 return（H2c）
 - [ ] 安装后按 `docs/install.md` §3.1 V5 用**页面内 fetch（credentials 默认 same-origin）**验证：`200 {"ok":true,"value":{"protocol":1,…}}`；**不得用无 cookie 裸 curl 的 405/401 当作「通过」判据**
 - [ ] 记住：**Plugin Manager active ≠ 插件工作**；唯一的通过判据是 RPC 200 + 「终端」tab 渲染
+
+---
+
+## 14. 会话隔离（v11，P0）
+
+> **不变量（违反即 P0 泄漏）**：Host 是单实例、单 `store`，但**每一帧、每一次增量消费、removed、prune、resync、客户端游标合并都必须按 `sessionIds`（本会话树 = root + 子代理 + 队友）过滤**；**禁止任何全局选择**（全局 `store.all()` 只允许用于诊断计数，不得进入帧/增量/removed）。
+
+### 14.1 隔离 API（Store 实例方法；签名见 §11.1.1）
+
+| 方法 | 隔离点 | 行为 |
+|---|---|---|
+| `frameSelection({sessionIds})` / `selectForFrame` | 选择集 | 只选 `ownerSessionId ∈ allowed`；focus/running/completed 排序不变 |
+| `takeEntries({sessionIds})` | 增量消费 | 只消费本会话 pending；**不得偷其它会话未交付增量**（否则对方会话丢帧） |
+| `mergeClientCursors(cursors, sessionIds)` | 客户端游标 | 忽略异会话游标（防串游标导致花帧） |
+| `drainRemoved(sessionIds)` | removed | 内部 `Map<runId, ownerSessionId>`；只取出本会话项，**其余保留**给对应会话 |
+| `prune(now,{protect,sessionIds})` | 保留窗口 | 每会话独立配额；**其它会话全量跳过**；`protect` 防 removed/re-upsert 抖动 |
+| `resync({sessionIds})` | 全量重同步 | 只重置本会话可见 Run（`metaDirty` + 读游标回退），不产生 removed |
+
+### 14.2 removed 语义（v11 更新）
+
+- 数据结构从 `string[]` 改为 `Map<runId, ownerSessionId>`；`drainRemoved(sessionIds)` 按 owner 过滤。
+- 帧级不变量保持：同一帧 `removed` 与 `runs` 互斥（冲突以 runs 为准）；`removedSent === frame.removed.length`（diagnostics 在 bound 前固定）。
+- 会话 A 的 removed **不得**出现在会话 B 的帧里；未取走的 removed 保留到其 owner 会话下一次 poll。
+
+### 14.3 prune / resync 的会话配额
+
+- `prune` 对每个 owner 会话分别按 `completedLimit`/`completedRetainMs` 配额；其它会话的 Run 完全不动。
+- `resync` 只影响允许集内 Run；跨会话分帧收敛互不干扰。
+
+### 14.4 terminal owner 政策（v11 收紧，替换 v9）
+
+- `terminalScopes = 会话树 sessions`（**不再 union store 全量 owner**）；`resolveOwnerPlan`/tier1 只解析树内 owner。
+- 树外 owner 的 terminal Run：不展示、不读、不清理（除本 root 曾见并离开者），计 `diagnostics.droppedForeignRuns`。
+- `knownSessionIds`（每 root 一个 Set，上限 512/裁剪 256）只用于清理「本 root 曾见、现已离开会话树」的 terminal Run；**从未见过的其它会话 Run 绝不清理**（否则会误删）。
+- 未来：可靠血缘（parentSession 上溯 / agentTeams.tryMembership root）在 v12 评估放开；**当前未实现**。
+
+### 14.5 diagnostics（每帧必带）
+
+`frameSessionId`（本帧归属）、`allowedSessions`（允许集大小）、`scopedRuns`（本会话 Run 数）、`droppedForeignRuns`（被过滤的异会话 Run 数，**不得泄漏其内容**）、`removedSent`（本帧 removed 数）；其中 `frameSessionId` 必须是请求 `sessionId`，客户端据此丢弃异会话帧。
+
+### 14.6 客户端纵深防御（详见 §6.11）
+
+异会话帧整帧丢弃 + 限流 warn 一次；`mergePoll` 返回原 state、不改 `view.sessionId`，帧内 runs/sessions 按会话树过滤；`SESSION_CACHE_VERSION='v11-1'` 参与 key + `sanitizeCachedView` + `cacheSaveSession` 拒绝异会话 view；切会话清瞬时态并重建 view/游标。
+
+### 14.7 冻结表与已知残留
+
+- §11.1.1 更新：`frameSelection/selectForFrame/takeEntries/mergeClientCursors/drainRemoved/prune/resync` 新签名（含 `sessionIds/allowedSessionIds`）；§11.2 **保持 53 键**。
+- **已知 INFO（v12）**：`mergePoll` 合并 `nextCursors` 未按 allowedOwners 过滤；Host v11 已不返回异会话 `nextCursors`，无实际泄漏，列未来项。

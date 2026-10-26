@@ -297,3 +297,50 @@ A23 行头/组头真实点击与复用 React 复用下的展开状态、A24 视�
 
 A29 真机边框粗细观感（DEF-V10-1 已修，静态级联断言 PASS；真机待验）、A30 真机 hover 视觉加粗/无抖动、A31 真实窗口 resize 下列数/最后一行单卡/窄容器单列、A32 点「收起」的单一 layout shift + 平滑滑动观感、A33 真机 reduced-motion；另既有 19 项 Unverified（`integration-report.md` §10）不变。
 
+## 16. v11 增量测试基线（T60，contract v11 / P0 会话隔离）
+
+> 触发：真机 P0——A 会话打开过终端面板后，切到 B 会话看到了 A 的终端内容。T57（host 隔离）/T58（client 防御）修复。
+> 基线：`350 tests / 91 smoke`（v10）→ 本任务 **364 tests / 364 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 16.1 新增用例（14 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/host/v11-isolation.test.mjs` | 7 | A34 帧隔离（B 帧不含 A 的 job/terminal run；`frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent` 口径）；A35 A 未交付增量不被 B 偷（B poll 后 A 续收完整 6000B）；A36 removed 按会话 drain（B 不吞 A 的 removed）；A37 `prune` 每会话配额（B 轮询不淘汰 A 终态 Run，A 也不淘汰 B）；A37 resync 隔离（B resync 不重置 A 游标/不重复输出）；A34/A35 terminal 隔离（B 不含 A 的 pty、不 list/read A owner；B 树内 subagent terminal 仍 live）；跨会话 `panel.kill` → `run-not-found` |
+| `tests/client/v11.test.mjs` | 7 | A36 `mergePoll` 异会话帧返回原 state 引用（sessionId/runs/cursors/revision 全不变）；帧内异会话 runs/sessions 过滤（root BFS 保留子代理）；旧 Host 无 `frame.sessionId` 时仍过滤异会话 run；A37 缓存 `CACHE_VERSION='v11-1'` + key 后缀 + restore `sanitizeCachedView` + save 拒绝异会话 view（静态）；`effectiveView`/切会话清瞬时态（静态）；帧入口 `noteCrossSessionFrame` + 限流 warn + notice 提示；A38 diag 摘要字段（静态） |
+
+### 16.2 期望变更记录（Lead 已批准：v9 旧断言按 v11 改写，未静默删除）
+
+| 旧用例（v9，历史） | v11 新用例（本任务改写） | 变更理由 |
+|---|---|---|
+| `v9-owner.test.mjs` 旧「A27 树外 owner 命中 live：terminal meta-only→live、notice 清空…」 | `A27(v11) 树外 owner 命中 live 也不展示/不解析：runs 无该 Run、droppedForeignRuns>0、不 list/read` | v11 P0 隔离取消 v9「树外 owner 升级 live」；树外 owner 不展示/不解析，Run 留在全局 store 由所属会话管理 |
+| 旧「A27 树外 owner 未命中 agent：保持 meta-only + notice，Run 不被删除」 | `A27(v11) 树外 owner 无 live agent：不展示、不误删、removed 为空` | 同上；隔离优先于 meta-only 展示（避免跨会话泄漏） |
+| 旧「A27 树外 owner 升级 live 后失联：Run 保留、removed 为空」 | `A27(v11) 树外 owner 升级 live 后失联：全程不展示、removed 为空` | 同上；即使 owner 可解析也不跨会话展示 |
+
+> 树内 owner（root + subagent + teammate）的 live 能力保持不变，由 `v9-owner.test.mjs` 的「树内 owner 行为不变」与 `v11-isolation.test.mjs` 的 subagent 用例覆盖。
+
+### 16.3 覆盖映射位置
+
+- ui-spec **v9 A34–A38** 尚未在 repo 落稿（T59 待启动，当前 `docs/design/ui-spec.md` 仍是 v8）；本任务按 Lead T60 任务单 + scout §E 先映射在 `docs/testing/acceptance-matrix.md` **§16**，待 T59 落稿后核对条目文字。
+- Host/Client 覆盖方式：双 session mock（node:test）+ mergePoll 纯函数 + 源码级静态断言；真实浏览器/真机行为仍标 Unverified。
+
+### 16.4 真机验证方法（P0 主判据，manual/Unverified）
+
+1. 准备：A、B 两个会话都打开过「终端」tab；A 里跑 `terminal_open`/bash 产生 ≥1 张卡（running/completed 均可）。
+2. **B 侧主判据**：B 面板只显示 B 自己的 Run；A 的命令/输出/终端名不得出现在 B 的卡片、标题、输出区。
+3. **Console 证据**：B 页面 `[terminal-panel] diag …` 行应满足 `frameSessionId=<B>`、`droppedForeignRuns ≥ 1`、`allowedSessions=<B 树数>`；Network 中 B 的 `panel.poll` 响应 `value.sessionId === <B>` 且 `value.runs[*].ownerSessionId` 全 ∈ B 会话树。
+4. **不干扰 A**：切回 A 连续看 2–3 帧：A 卡片还在、输出不重复、终态 Run 不被删（B 轮询不得改 A 的 pending/游标/removed/prune）。
+5. **反向**：B 操作后切回 A 重复第 4 步；A 可 kill 自己的 Run，B 对 A 的 runId 调 `panel.kill` 得 `run-not-found`。
+6. **缓存/重挂**：切 tab 来回 + 刷新页面（缓存未命中 → `resync:true`），B 仍 0 条 A 数据，A 数据完整回归。
+7. **记录**：每会话 diag 行原文 + poll 响应片段（脱敏） + 截图/文字结论；真机项标 manual/Unverified，待用户执行后回填。
+
+### 16.5 仍未覆盖（只能真机/浏览器验证）
+
+A34 A/B 真机互不可见、A35 切回 A 数据完整、A36 迟到帧不闪、A37 removed/prune/resync 真机时序、A38 真机 Network/Console 诊断；另既有 19 项 Unverified（`integration-report.md` §10）不变。
+
+### 16.6 已知残留（INFO，未修；纵深防御可补，非当前泄漏）
+
+| 编号 | 级别 | 残留 | 位置/复现 | 影响/建议 |
+|---|---|---|---|---|
+| V11-C1 | INFO（LOW，纵深防御） | `mergePoll` 合并 `frame.nextCursors` 时未按本会话 allowedOwners 过滤，异会话 runId 的游标键会写入本地 `state.cursors`；Host v11 已只产出本会话游标，故当前无可利用泄漏 | `lib/client.js` mergePoll 内 `next.cursors = { ...next.cursors, ...frame.nextCursors }`；复现（纯函数）：`mergePoll(makeViewState({sessionId:'root-a'}), makeFrame({sessionId:'root-a', revision:2, nextCursors:{'job:foreign':{job:5}}}))` → `state.cursors['job:foreign']` 存在 | 低：仅纵深防御缺口；v12 可顺手按 allowedOwners 过滤 nextCursors（与 runs/sessions 同源）。未改 lib，未加失败断言 |
+

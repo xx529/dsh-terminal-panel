@@ -5,15 +5,15 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 代码侧已交付（2026-10-26，v10）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：**350 tests / 350 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T54 最终报告）。**v7 真机反馈 5 项已代码侧修复**（见下方「真机反馈修复（v7）」），真机复验待做。
+**状态：v0.1.0 代码侧已交付（2026-10-26，v11）** — Host 半端 + Client 半端实现完成、**真机安装与视觉验收待做**（见 [`docs/install.md`](docs/install.md)）。门禁：**364 tests / 364 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（tester T60 最终报告）。**v7 真机反馈 5 项已代码侧修复**（见下方「真机反馈修复（v7）」），真机复验待做。
 
 | 门 | 结果 | 命令 |
 |---|---|---|
 | 语法自检 | 通过 | `npm run check` |
-| 单测 | **350 tests / 350 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；tester T54 最终报告） | `npm test` |
+| 单测 | **364 tests / 364 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；tester T60 最终报告） | `npm test` |
 | Host mock 冒烟 | **PASS — 91/91 checks passed**，exit 0 | `npm run smoke` |
 | 一键全验 | check → test → smoke，**exit 0** | `npm run verify` |
-| 契约 | **v10**（视觉/结构：2px 边框/统一卡宽 grid/同步 ghost） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
+| 契约 | **v11**（P0 会话隔离：帧/增量/removed/prune/resync 按会话树） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
 
 > T6 集成审计（commit `ad39516`）：**无 CRITICAL**；HIGH **H1**（Tier2 单 Run livelock）与 MEDIUM **M2**（选择集错配）已由 backend 修复（commit `4bc721e`，含 R1/R2 回归），M1（菜单两项）已裁决不做；LOW L1–L5 见 contract §12.10。
 
@@ -74,11 +74,24 @@
 
 > 以上为**代码侧修复**；真机复验清单见 `docs/design/ui-spec.md` v8 §9 A29–A33（均为 manual/Unverified），**不得据此宣称已真机验收**。
 
+## 会话隔离 v11（P0，代码侧已修 / 真机双会话复验待做）
+
+2026-10-26 P0 修复（契约 v11 / ui-spec v9）：Host 单实例单 store 下曾出现跨会话数据泄漏（A 会话能看到 B 的 Runs/终端），修复为**所有帧与存储操作按会话树隔离**：
+
+| # | 变更 | 说明 |
+|---|---|---|
+| 1 | **Host 帧/存储隔离** | `frameSelection({sessionIds})`、`takeEntries({sessionIds})`、`drainRemoved(sessionIds)`（内部 `Map<runId,owner>`）、`prune(now,{protect,sessionIds})`（每会话配额）、`resync({sessionIds})`、`mergeClientCursors(cursors,sessionIds)`；异会话 Run 不进帧、不消费其增量、不 prune、不 removed |
+| 2 | **terminal owner 收紧** | `terminalScopes` **只等于会话树**（v9「树外 owner 升级 live」**作废**）；树外 owner 不展示/不解析，计 `droppedForeignRuns`；`knownSessionIds` 只清理本 root 曾见并离开的 terminal |
+| 3 | **诊断** | `diagnostics` 增 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`，便于双会话核对 |
+| 4 | **客户端纵深防御** | 异会话帧整帧丢弃（限流 warn 一次）；`mergePoll` 不跨会话改写；`SESSION_CACHE_VERSION='v11-1'` + sanitize；切会话清 ghost/timers/FLIP/undo/armed/drag/最大化 |
+
+> 真机双会话验证见 `docs/testing/report.md` §16.4（7 步 manual/Unverified）；ui-spec v9 §9 A34–A38。**不得据此宣称已真机验收**。
+
 ## 快速验证
 
 ```bash
 npm run check     # node --check lib/index.js && node --check lib/client.js
-npm test          # node --test "tests/**/*.test.mjs"（350 用例）
+npm test          # node --test "tests/**/*.test.mjs"（364 用例）
 npm run smoke     # node scripts/smoke-host.mjs（91 checks，exit 0）
 # 或一次跑完：
 npm run verify
@@ -99,12 +112,12 @@ npm run verify
 
 ## 链接
 
-- 设计规格（v8，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
+- 设计规格（v9，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
-- 架构与接口契约（v10）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
+- 架构与接口契约（v11）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
-- 测试报告（T5 基线 236；v10 回归后 350，tester T54 最终报告）：[`docs/testing/report.md`](docs/testing/report.md)
+- 测试报告（T5 基线 236；v11 回归后 364，tester T60 最终报告）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
@@ -141,7 +154,8 @@ npm run verify
 10. **terminal 无 Agent 时只能看元信息（v7）**：默认走 `tools/execute` 事件兜底（`terminalController` 是侧栏终端注册表、默认关闭），`outputMode:'meta-only'` + `notice`，读不到连续实时输出（tier3 片段非全量）、停止不可用；但**不再静默 0 条**（诊断字段见 contract §7.2）。
 11. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则 `[data-conversation-content]` 标记 + CSS（找不到锚点才 body 兜底/静默降级）；宿主 DOM 变更可能失效（其它 tab 不受影响）。
 12. **v7 真机 5 项修复仅代码侧完成，真机复验待做**；ui-spec §9 的 A1–A13 为验收条目（部分 manual）。
-15. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（最后一行单卡不拉伸；容器 <716px 单列单卡占满）；拖右缘只调统一列宽；重排为同步 ghost+FLIP。
+16. **v11 行为变更（不是缺陷）**：树外 owner 的 terminal 不再展示（v9 升级 live 作废；可靠血缘放开为 v12 未来项）；切会话会清瞬时态并重建 view（缓存+resync 恢复首屏）。
+17. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（最后一行单卡不拉伸；容器 <716px 单列单卡占满）；拖右缘只调统一列宽；重排为同步 ghost+FLIP。
 16. **v9 行为变更（不是缺陷）**：已完成行独立展开且无倒计时；执行区按行铺满；状态色黄/绿/红；树外 owner terminal 可升级 live。
 15. **v8 行为变更（不是缺陷）**：横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 10s + 收起按钮）；切 tab 依赖 LRU 4/TTL 30min 会话缓存（第 5 个会话不保证首屏不空）。terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史/已卸载 owner 的 pty 不可回读，不计缺陷）。
 
@@ -155,12 +169,12 @@ npm run verify
 ├── icon.svg                     # Plugin Manager 图标（原创终端字形，16/24px 可读）
 ├── locale/{zh,en}.json          # Plugin Manager 展示元数据（meta.title / meta.description）
 ├── docs/
-│   ├── design/ui-spec.md        # v8 设计规格（验收基线 + A1–A33）
-│   ├── architecture/contract.md # 双端契约（v10）
+│   ├── design/ui-spec.md        # v9 设计规格（验收基线 + A1–A38）
+│   ├── architecture/contract.md # 双端契约（v11）
 │   ├── research/dsh-plugin-apis.md # scout T1 取证（契约事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/acceptance-matrix.md # 验收矩阵
-│   ├── testing/report.md        # 测试报告（T5 基线 236 → v10 350，覆盖说明）
+│   ├── testing/report.md        # 测试报告（T5 基线 236 → v11 364，覆盖说明）
 │   ├── testing/integration-report.md # 集成报告（T6，已完成 ad39516）
 │   ├── retro/2026-10-26-bash-live-source.md # T4 触发复盘（closed）
 │   └── install.md               # 安装 / 生效 / 验证 / 回滚（证据版）

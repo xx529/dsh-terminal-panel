@@ -1,8 +1,16 @@
-# 终端 · DSH 插件 UI/UX 设计规格（v8）
+# 终端 · DSH 插件 UI/UX 设计规格（v9）
 
 > 设计稿：Figma 本地文档 “Untitled” → Page「命令实况 · UI/UX 设计」
 > A `12:2` 主视图 · B `12:240` 会话范围筛选 · C `12:674` 状态与规则 · D `12:1005` Light · E `12:895` 边界状态
-> 状态：**v8（视觉/结构修订，契约 v10 对应）** — v1→v7 已有七轮评审；v8 吸收 2026-10-26 真机反馈（边框太细 / 卡片宽窄不齐+最后一行被拉伸 / 点收起卡片瞬移跳变）：状态边框 2px、统一卡宽 CSS grid auto-fill、同步 ghost FLIP。
+> 状态：**v9（会话隔离，契约 v11 对应）** — v1→v8 已有八轮评审；v9 处理 P0 会话隔离：任意两个会话的终端面板**互不可见**，切会话/迟到帧不得串数据或闪动。
+
+## v9 相对 v8 的变更（第九轮：P0 会话隔离，契约 v11 对应）
+
+1. **会话互不可见**：会话 A 的面板只展示 A 的会话树（root + 子代理 + 队友）的 Run；B 的 Run/终端/removed **不得出现**（Host 帧隔离 + 客户端纵深防御）。
+2. **切会话数据完整性**：A→B→A 后 A 的首屏数据完整；B 轮询**不得**消费 A 的未交付增量、不得 prune/removed 掉 A 的数据；切回 A 时清瞬时态（ghost/倒计时/undo/最大化等）并重建 view/游标。
+3. **迟到帧丢弃**：异会话迟到帧（`frame.sessionId !== 当前`）**整帧丢弃**，界面**不闪**（保留当前内容 + 限流 warn 一次）；缓存按版本隔离，旧缓存不读。
+4. **诊断可见**：`diagnostics.frameSessionId` / `droppedForeignRuns` / `removedSent` 可核对隔离是否生效。
+5. **树外 owner 政策（v11 收紧）**：v9 的「树外 owner 升级 live」**作废**；树外 owner 的 terminal 不展示（A27 作废，见 §9 A34–A38）。
 
 ## v8 相对 v7 的变更（第八轮：视觉/结构，契约 v10 对应）
 
@@ -140,6 +148,9 @@
 25. **统一卡宽（v8）**：拖右缘调整**统一** `--tp-card-w`（280–640，会话级持久化、双击复位 352），所有卡跟随；不再支持每卡独立宽。
 26. **2px 边框 + hover 视觉加粗（v8）**：状态边框生效 2px；hover/focus 只加 `inset box-shadow`/提亮 border-color，**不得改盒尺寸**（FLIP 测量不抖）。
 27. **同步 ghost + FLIP（v8）**：退场卡渲染期同步派生并插回原槽位（180ms 淡出），其余卡 FLIP 200ms（仅 transform/opacity）；同帧 >2 张跳过 fade；`prefers-reduced-motion` 瞬时。
+28. **会话隔离（v9）**：面板只显示当前会话树的 Run；其它会话的卡片/输出/终端不得出现（Host 按会话过滤 + 客户端帧级校验）。
+29. **切会话（v9）**：切走后原会话缓存保留；切回时清 ghost/timers/FLIP/undo/armed/drag/最大化并按缓存+resync 恢复（首屏不空）；不得沿用其它会话的缓存或游标。
+30. **迟到异会话帧（v9）**：`frame.sessionId !== 当前` → 整帧丢弃（保留当前 UI、不闪、不重置 revision/游标）；控制台限流 warn 一次，供排障。
 
 ## 4. 筛选
 
@@ -165,6 +176,7 @@
 **v5 新增**：terminal 仅元信息态（输入块 + `notice` + 空输出文案 + 可选 tier3 片段「非实时全量」标注，不假装有实时流）、终端发现降级（可看 diagnostics 定位，不静默 0 条）、composer 已隐藏态。
 **v6 新增**：首帧加载态（skeleton；与空态区分）、切 tab 恢复态（缓存命中时首屏即有内容）、linger 滞留态（10s 倒计时 + 收起按钮）。
 **v6 追加（host 一致性）**：job-only 场景不抖动（`removed`/`runs` 同帧互斥、本帧已见 Run 不被 prune）；Host 重载后 revision 回退自动恢复（清 view + resync，不冻住）。
+**v9 新增**：异会话迟到帧（整帧丢弃、不闪）、跨会话缓存隔离（旧版本/异会话缓存不读）、切会话瞬时态清理。
 
 ## 7. 无障碍与性能
 
@@ -180,6 +192,7 @@
 **v5 追加已确定**：标题只显示命令第一条非空行；输出区顶部含输入块（`$ `/`› ` 前缀）+ 分隔线；倒计时仅展开态可见且固定占位；**到点才折叠**；面板填满高度（运行列固定区 + 已完成区自适应滚动，工具栏单行）；数据更新不重放动画、禁止 `scrollIntoView`；终端 tab 隐藏 composer（失败静默降级）；terminal 记录不得静默 0 条。
 **v6 追加已确定**：执行区固定宽卡片网格自动换行 + 纵向滚动（**横向滑动彻底作废**）；Run 三态 running→linger→completed（自动展开分组行为删除）；会话缓存（LRU 4/TTL 30min）切 tab 首屏不空 + 游标续传；FLIP/fade 动画 + reduced-motion 瞬时；首帧 loading ≠ 空态。
 **v6 追加（host）**：`poll {resync:true}` 全量重同步（不发 removed、可多帧收敛）；`removed`/`runs` 同帧互斥（runs 优先）+ prune protect；`revision` 回退=服务端重建→清 view + resync。
+**v9 追加**：P0 会话隔离——会话 A/B 互不可见；切会话数据完整（不偷增量/不跨会话 prune/removed）；异会话迟到帧整帧丢弃不闪；树外 owner 不再展示（v9 A27 作废）。
 
 仍需确认：无（进入开发）。开发以本规格 + Figma A–F 六张板为验收基线。
 
@@ -213,10 +226,15 @@
 | A24 | 已完成行无倒计时（v7） | 已完成行**不渲染** `collapse.in`/`tp-countdown`/`tp-progress`（样式/词典暂留，测试兼容），不显示「Ns 后收起」 | 源码静态断言 + 真机（manual） |
 | A25 | 黄/绿/红状态色（v7） | 进行中卡片边框黄、已完成行/卡绿、失败红（生效 2px，mix 65/60/65%）；hover/focus 不改布局尺寸 | 静态样式断言 + 真机（manual） |
 | A26 | 铺满网格无横向滚动（v8） | 静态断言 `display:grid` + `repeat(auto-fill,minmax(min(100%,var(--tp-card-w,352px)),1fr))` + `gap:12px` + `align-content:start`，**无 auto-fit**；窄容器单列、无横向滚动 | 静态样式断言 + 真机（manual） |
-| A27 | 树外 owner 升级 live（v9 host） | 树外 owner 的 terminal 命中 live Agent → 输出 live、notice 清空、`meta-only→live`；未命中保持 meta-only | Host 集成用例 + 真机（manual） |
+| A27 | ~~树外 owner 升级 live（v9 host）~~ **v11 作废** | v11 收紧：树外 owner 不再展示/解析（R17）；由 A34–A38 会话隔离条目替代 | —（测试已按 v11 改写，report §16.2） |
 | A28 | 诊断可见（v9 host） | `diagnostics.agentsService/agentsProbe{getOk,sampleIds}/terminalOwners{captured,alive,inScope,outOfScope}` 形状与取值正确 | Host 用例断言 + 真机 Network/Console（manual） |
 | A29 | 2px 状态边框（v8） | `.tp-col`/`.tp-row` 生效 `border-width:2px`（旧 1px 仅供旧测试断言）；running warn 65%、linger/completed success 60%、failed error 65% | 静态样式断言 + 真机目视（manual/Unverified） |
 | A30 | hover 视觉加粗不改尺寸（v8） | hover/focus 只含 `box-shadow: inset 0 0 0 1px`/border-color，**不含** border-width/width/height/padding；FLIP 测量无抖动 | 静态断言 + 真机（manual/Unverified） |
 | A31 | 统一卡宽/单卡不拉伸（v8） | grid `auto-fill` 所有卡等宽；最后一行单卡保持列宽、不拉伸；拖右缘改统一 `--tp-card-w`（280–640）；容器 <716px 单列单卡占满 | 静态断言 + 真机（manual/Unverified） |
 | A32 | 收起只发生一次 layout shift + 平滑滑动（v8） | 点「收起」后退场卡原位淡出（180ms），其余卡 FLIP 200ms 平滑补位；无二次反向重排/卡片瞬移；同帧 >2 张跳过 fade | 交互（manual/Unverified） |
 | A33 | reduced-motion 瞬时（v8） | `prefers-reduced-motion: reduce` 下无 ghost 占位、无 FLIP/fade（瞬时） | 静态/逻辑断言 + 真机（manual/Unverified） |
+| A34 | 会话互不可见（v9 P0） | 会话 A 面板不出现 B 的 Run/terminal/removed；A 帧 `scopedRuns` 只含 A 树、`droppedForeignRuns` 不含 B 内容 | Host 用例 `v11-isolation` + 真机双会话（manual/Unverified） |
+| A35 | 切回 A 数据完整（v9 P0） | A→B→A 后 A 首屏完整；B 不消费 A 增量、不 prune/removed A 数据；切回清瞬时态后恢复缓存+resync | 缓存/隔离用例 + 真机（manual/Unverified） |
+| A36 | 异会话迟到帧丢弃且不闪（v9 P0） | 迟到 B 帧到达 A：整帧丢弃、当前 UI 不闪、revision/游标不变、限流 warn 一次 | 客户端用例 + 真机（manual/Unverified） |
+| A37 | removed/prune/resync 不跨会话（v9 P0） | A 帧 removed 不含 B；B 的 prune/resync 不影响 A；`removedSent === frame.removed.length` | Host 用例 + 真机（manual/Unverified） |
+| A38 | 隔离诊断可见（v9 P0） | 帧带 `frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent`，取值与双会话场景一致 | Host 用例 + 真机 Network/Console（manual/Unverified） |
