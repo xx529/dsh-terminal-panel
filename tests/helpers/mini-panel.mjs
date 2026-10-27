@@ -22,8 +22,29 @@ export async function createMiniPanel(client, options = {}) {
     innerWidth: 800,
     innerHeight: 600,
     wrapContains: false,
+    reducedMotion: false,
+    layout: new Map(),
+    metrics: { transformWrites: [], flipWrites: 0 },
     winListeners: new Map(),
     docListeners: new Map(),
+  }
+  const timers = new Map()
+  let timerSeq = 0
+  let clock = 0
+  function fakeSetTimeout(fn, ms) {
+    timerSeq += 1
+    timers.set(timerSeq, { fn, ms: Number(ms) || 0, due: clock + (Number(ms) || 0) })
+    return timerSeq
+  }
+  function fakeClearTimeout(id) { timers.delete(id) }
+  function advance(ms) {
+    clock += Number(ms) || 0
+    const due = [...timers.entries()].filter(([, timer]) => timer.due <= clock).sort((a, b) => a[1].due - b[1].due)
+    for (const [id, timer] of due) {
+      timers.delete(id)
+      try { timer.fn() } catch { /* 测试桩静默 */ }
+    }
+    return due.length
   }
 
   /* ---------------- mini React ---------------- */
@@ -100,13 +121,30 @@ export async function createMiniPanel(client, options = {}) {
 
   function makeHostNode(tag, props) {
     const isScopeButton = typeof props.className === 'string' && props.className.includes('tp-scope-btn')
+    const runId = typeof props['data-run-id'] === 'string' ? props['data-run-id'] : undefined
+    const layoutRect = runId !== undefined ? (rig.layout.get(runId) ?? { left: 0, top: 0, width: 352, height: 342 }) : null
+    const styleTarget = { ...(props.style || {}) }
+    const style = new Proxy(styleTarget, {
+      set(target, prop, value) {
+        if (prop === 'transform') {
+          rig.metrics.transformWrites.push(String(value))
+          if (/^translate\(/.test(String(value))) rig.metrics.flipWrites += 1
+        }
+        target[prop] = value
+        return true
+      },
+    })
     const node = {
       tagName: String(tag).toUpperCase(),
       props,
-      style: { ...(props.style || {}) },
+      style,
       dataset: {},
       className: typeof props.className === 'string' ? props.className : '',
       children: [],
+      offsetLeft: layoutRect !== null ? layoutRect.left : 0,
+      offsetTop: layoutRect !== null ? layoutRect.top : 0,
+      offsetWidth: layoutRect !== null ? layoutRect.width : 0,
+      offsetHeight: layoutRect !== null ? layoutRect.height : 0,
       getBoundingClientRect() {
         return isScopeButton
           ? { ...rig.buttonRect, width: rig.buttonRect.right - rig.buttonRect.left, height: rig.buttonRect.bottom - rig.buttonRect.top }
@@ -162,9 +200,10 @@ export async function createMiniPanel(client, options = {}) {
   function runEffects() {
     const queued = effectQueue
     for (const { key, fn, deps } of queued) {
-      // 只运行 Toolbar 的下拉定位/交互 effect：避免 usePanelSession 的轮询/定时器在
+      // 默认只运行 Toolbar 的下拉定位/交互 effect：避免 usePanelSession 的轮询/定时器在
       // 迷你环境中启动（那会留下 RPC timeout/真实 timer，导致测试进程不退出）。
-      if (!key.startsWith('Toolbar#')) continue
+      // FLIP/ghost 用例通过 effectFilter 放行「FLIP/ghost 清理」这几条 effect（仍跳过轮询）。
+      if (typeof options.effectFilter === 'function' ? !options.effectFilter(key, fn) : !key.startsWith('Toolbar#')) continue
       const prev = effectPrev.get(key)
       const same = Array.isArray(deps) && Array.isArray(prev?.deps) && depsEqual(prev.deps, deps)
       if (prev !== undefined && same) continue
@@ -210,12 +249,12 @@ export async function createMiniPanel(client, options = {}) {
     get innerHeight() { return rig.innerHeight },
     addEventListener(type, fn) { if (!rig.winListeners.has(type)) rig.winListeners.set(type, new Set()); rig.winListeners.get(type).add(fn) },
     removeEventListener(type, fn) { rig.winListeners.get(type)?.delete(fn) },
-    matchMedia: () => ({ matches: false }),
-    getComputedStyle: () => ({}),
+    matchMedia: () => ({ matches: rig.reducedMotion === true }),
+    getComputedStyle: (el) => ({ transform: el && el.style && typeof el.style.transform === 'string' ? el.style.transform : '' }),
     requestAnimationFrame: (fn) => { fn?.(0); return 1 },
     cancelAnimationFrame() {},
-    setTimeout: () => 0,
-    clearTimeout() {},
+    setTimeout: fakeSetTimeout,
+    clearTimeout: fakeClearTimeout,
   }
 
   const saved = {
@@ -233,8 +272,8 @@ export async function createMiniPanel(client, options = {}) {
   globalThis.document = doc
   globalThis.fetch = () => new Promise(() => {})
   globalThis.requestAnimationFrame = win.requestAnimationFrame
-  globalThis.setTimeout = noopTimer
-  globalThis.clearTimeout = () => {}
+  globalThis.setTimeout = fakeSetTimeout
+  globalThis.clearTimeout = fakeClearTimeout
   globalThis.setInterval = noopTimer
   globalThis.clearInterval = () => {}
 
@@ -307,6 +346,21 @@ export async function createMiniPanel(client, options = {}) {
     const tree = settle()
     const instance = {
       rig,
+      setView(nextView) {
+        for (const entry of states.values()) {
+          const value = entry.value
+          if (value !== null && typeof value === 'object' && value.sessionId === sessionId
+            && typeof value.runs === 'object' && value.order !== undefined && value.filter !== undefined) {
+            entry.value = nextView
+            dirty = true
+            return true
+          }
+        }
+        throw new Error('找不到 TerminalPanel 的 view state（迷你渲染器限制）')
+      },
+      advance,
+      timers: () => timers.size,
+      clock: () => clock,
       doc,
       win,
       tree: () => lastTree,
