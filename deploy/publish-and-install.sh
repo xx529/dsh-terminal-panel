@@ -3,7 +3,10 @@
 # deploy/publish-and-install.sh — dsh-terminal-panel 一键「发布 + 安装」
 #
 #  阶段 A [push]    ：把当前仓库以 fast-forward 方式推送到 GitHub（绝不 force）
-#  阶段 B [install] ：把插件以 link: 依赖安装进本机 DSH profile，并选入 bundle
+#  阶段 B [install] ：把插件安装进本机 DSH profile，并选入 bundle。两种安装来源：
+#                     - 默认 link:           开发模式，profile 依赖指向本仓库工作树（symlink）
+#                     - --from-git [<ref>]  GitHub spec `github:xx529/dsh-terminal-panel#<ref>`
+#                                           可复现安装（默认 ref=v0.1.1）；需联网；node_modules 为实体目录
 #
 # 设计原则：可重复执行（幂等）、失败可回滚（--rollback）、先演算再动手（--dry-run）。
 #
@@ -19,6 +22,10 @@
 #   [ASSUMPTION] 「手工写 link 依赖 + pnpm install」这条兼容路径见 docs/install.md §1.2，
 #          未在真机实测；如果可用性存疑，优先用 plugin_manager 的 install_bundle。
 #          本脚本在没有 dsh CLI 时走该路径，且强制要求 --yes 才动手。
+#   [FACT] GitHub spec 安装（--from-git）：`pnpm add github:<owner>/<repo>#<ref>`，由 profile 的
+#          pnpm 拉取该 ref 的 tarball；**需要联网**；装好后 `node_modules/dsh-terminal-panel`
+#          是实体目录（不是 symlink）。等价于 plugin_manager 的 install_bundle 的 git 目标。
+#          本脚本对 git 模式的中断/失败会**自动恢复本次安装前的 package.json + pnpm-lock.yaml**。
 #
 # 安全边界：不 sudo、不改任何全局配置、不 force push、不 rm -rf、所有写入前校验绝对路径。
 # ---------------------------------------------------------------------------
@@ -38,6 +45,14 @@ PROFILE="desktop"
 PLUGIN_PKG="dsh-terminal-panel"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 TIMEOUT_SECS=120
+# 安装来源：link（默认，开发模式）或 git（GitHub spec，可复现）。--from-git 切换为 git。
+SOURCE_MODE="link"
+# --from-git 的默认 ref（接受 tag / commit / branch）
+GIT_REF="v0.1.1"
+# GitHub spec 的 owner/repo 部分（与 REPO_URL 指向同一仓库）
+GITHUB_REPO_SPEC="xx529/dsh-terminal-panel"
+# --rollback --to-link / --from-link：回滚后恢复为 link: 开发模式
+ROLLBACK_TO_LINK=0
 
 SKIP_TESTS=0
 DRY_RUN=0
@@ -146,11 +161,16 @@ dsh-terminal-panel — 一键发布 + 安装（publish & install）
   --branch <name>   要推送的分支（默认 main；当前分支不是它时直接报错，脚本不会自动改分支名）
   --profile <name>  安装到哪个 DSH profile（默认 desktop，即 ~/.dsh/profiles/desktop）
   --timeout <秒>    pnpm / dsh plugin 调用的超时秒数（默认 120，范围 10-3600；超时 exit 6）
+  --from-git [ref]  用 GitHub spec 安装（`github:xx529/dsh-terminal-panel#<ref>`）而不是本地 link:；
+                    ref 默认 v0.1.1（可用 tag/commit/branch；也可写成 --from-git=<ref>）；
+                    **该模式需要联网**，装好后 node_modules 为实体目录
   --skip-tests      跳过 `npm run verify`（收窄门禁，仅限已确认 CI 跑过时使用）
   --dry-run         只打印将执行的命令与变更摘要：不推送、不安装、不改任何文件
   --yes             允许走「兼容回退路径」（无 dsh CLI / CLI 安装失败时的 profile 手工改写）
   --rollback        回滚最近一次安装：恢复 profile package.json（+ pnpm-lock.yaml）备份、
                     从 dsh.profile.bundles 移除插件名、重新安装以清理 node_modules（幂等）
+  --to-link         仅与 --rollback 一起用：回滚后把插件恢复为 link: 开发模式安装
+                    （等价步骤：pnpm add link:<仓库根> + 选入 bundle）；--from-link 为同义简写
   --no-push         只安装，不推送
   --no-install      只推送，不安装
   -h, --help        显示本帮助并退出
@@ -165,11 +185,19 @@ dsh-terminal-panel — 一键发布 + 安装（publish & install）
   ./deploy/publish-and-install.sh                            # 推送到 origin/main 并安装到 desktop profile
   ./deploy/publish-and-install.sh --no-push                  # 只装到本机 profile
   ./deploy/publish-and-install.sh --rollback                 # 撤销最近一次安装
+  ./deploy/publish-and-install.sh --no-push --from-git        # 用 GitHub spec 装 v0.1.1（需联网）
+  ./deploy/publish-and-install.sh --no-push --from-git v0.1.0 # 指定 ref
+  ./deploy/publish-and-install.sh --rollback --to-link        # 回滚并恢复 link: 开发模式
   ./deploy/publish-and-install.sh --profile web --no-push    # 装到 web profile
 
 风险与边界:
   * 推送阶段绝不使用 --force；远端有并发提交（非 fast-forward）时直接失败，转人工处理。
   * 安装阶段会写 profile 的 package.json（先备份为 package.json.bak.<UTC时间戳>）。
+  * 两种来源：默认 link:（开发模式，symlink 指向本仓库）；`--from-git [ref]` 用
+    `github:xx529/dsh-terminal-panel#<ref>`（可复现；**需联网**；node_modules 为实体目录）。
+    `--dry-run` 会打印本次将使用的来源与 spec。
+  * git 模式的 pnpm add 中断/超时/失败会**自动恢复安装前的 package.json + pnpm-lock.yaml**，
+    并尽力 pnpm install 收敛；随后以非零码退出。
     「profile 手工改写 + pnpm install」兼容路径在 docs/install.md §1.2 标为 ASSUMPTION
     （未真机实测）；可用时优先用官方 plugin_manager 的 install_bundle，或本脚本探测到的
     `dsh plugin --profile <name> ...` 转发路径。
@@ -201,6 +229,9 @@ while (( $# )); do
     --dry-run)    DRY_RUN=1; shift ;;
     --yes)        ASSUME_YES=1; shift ;;
     --rollback)   DO_ROLLBACK=1; shift ;;
+    --from-git)   SOURCE_MODE="git"; if [[ $# -ge 2 && "$2" != -* ]]; then GIT_REF="$2"; shift; fi; shift ;;
+    --from-git=*) SOURCE_MODE="git"; GIT_REF="${1#--from-git=}"; shift ;;
+    --to-link|--from-link) ROLLBACK_TO_LINK=1; shift ;;
     --no-push)    DO_PUSH=0; shift ;;
     --no-install) DO_INSTALL=0; shift ;;
     -h|--help)    usage; exit "$EXIT_OK" ;;
@@ -215,6 +246,14 @@ done
 [[ "$TIMEOUT_SECS" =~ ^[0-9]+$ ]] || die "--timeout 必须是整数秒: $TIMEOUT_SECS" "$EXIT_USAGE"
 (( TIMEOUT_SECS >= 10 && TIMEOUT_SECS <= 3600 )) || die "--timeout 必须在 10..3600 秒之间: $TIMEOUT_SECS" "$EXIT_USAGE"
 [[ "$REPO_ROOT" == /* ]] || die "REPO_ROOT 必须是绝对路径: $REPO_ROOT" "$EXIT_USAGE"
+if [[ "$SOURCE_MODE" == "git" ]]; then
+  [[ -n "$GIT_REF" ]] || die "--from-git 的 ref 不能为空（默认 v0.1.1）" "$EXIT_USAGE"
+  [[ "$GIT_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || die "--from-git 的 ref 非法: $GIT_REF" "$EXIT_USAGE"
+fi
+if (( ROLLBACK_TO_LINK )) && (( ! DO_ROLLBACK )); then
+  die "--to-link / --from-link 只能与 --rollback 一起使用" "$EXIT_USAGE" \
+    "示例：--rollback --to-link（回滚后恢复 link: 开发模式）"
+fi
 
 if (( DO_ROLLBACK )); then
   DO_PUSH=0
@@ -245,6 +284,9 @@ have_cmd() { command -v "$1" >/dev/null 2>&1; }
 # --- profile 读写（node -e，避免依赖 jq） ----------------------------------
 
 profile_dir() { printf '%s/profiles/%s' "${DSH_HOME:?DSH_HOME 未设置}" "${PROFILE:?PROFILE 未设置}"; }
+
+# 本次 git 模式的 pnpm spec：github:<owner/repo>#<ref>
+git_spec() { printf 'github:%s#%s' "${GITHUB_REPO_SPEC:?}" "${GIT_REF:?}"; }
 
 # 打印 4 行（每行一个字段，避免 IFS 折叠空字段）:
 #   1=hasDep(0/1)  2=depValue  3=hasBundle(0/1)  4=bundleCount
@@ -316,19 +358,79 @@ process.stdout.write(JSON.stringify({ changes }));
 '
 }
 
-# 安装后核对：dep 必须是 link: 且 bundle 已选入 → 打印 ok/bad
-profile_verify_installed() { # profile_verify_installed <dir>
+# 仅确保 bundle 选入（不动 dependency；git 模式下 dependency 由 pnpm 写成 git spec）
+profile_ensure_bundle() { # profile_ensure_bundle <dir>
   local dir="${1:?}"
   PROFILE_DIR_ENV="$dir" PLUGIN_NAME_ENV="$PLUGIN_PKG" node -e '
 const fs = require("fs"), path = require("path");
 const dir = process.env.PROFILE_DIR_ENV, name = process.env.PLUGIN_NAME_ENV;
+const file = path.join(dir, "package.json");
+const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+const changes = [];
+pkg.dsh = pkg.dsh || {};
+pkg.dsh.profile = pkg.dsh.profile || {};
+const bundles = Array.isArray(pkg.dsh.profile.bundles) ? pkg.dsh.profile.bundles : [];
+if (!bundles.includes(name)) { bundles.push(name); pkg.dsh.profile.bundles = bundles; changes.push("dsh.profile.bundles+=" + name); }
+if (changes.length) {
+  const tmp = file + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify(pkg, null, 2) + "\n", { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+process.stdout.write(JSON.stringify({ changes, bundleCount: bundles.length }));
+'
+}
+
+# 安装后核对（按来源模式）：link 模式要求 dependency 以 `link:` 开头；
+# git 模式要求非 link 的 git spec（github:/git+/http）。两种模式都要求 bundle 已选入。→ 打印 ok/bad
+profile_verify_installed() { # profile_verify_installed <dir> <mode: link|git>
+  local dir="${1:?}" mode="${2:-link}"
+  PROFILE_DIR_ENV="$dir" PLUGIN_NAME_ENV="$PLUGIN_PKG" VERIFY_MODE_ENV="$mode" node -e '
+const fs = require("fs"), path = require("path");
+const dir = process.env.PROFILE_DIR_ENV, name = process.env.PLUGIN_NAME_ENV, mode = process.env.VERIFY_MODE_ENV;
 const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
 const deps = pkg.dependencies || {};
 const bundles = (((pkg.dsh || {}).profile || {}).bundles) || [];
 const dep = deps[name];
-const ok = typeof dep === "string" && dep.startsWith("link:") && Array.isArray(bundles) && bundles.includes(name);
+const hasBundle = Array.isArray(bundles) && bundles.includes(name);
+const isLink = typeof dep === "string" && dep.startsWith("link:");
+const isGitSpec = typeof dep === "string" && !isLink &&
+  (dep.startsWith("github:") || dep.startsWith("git+") || dep.startsWith("http"));
+const ok = hasBundle && (mode === "git" ? isGitSpec : isLink);
 process.stdout.write(ok ? "ok" : "bad");
 '
+}
+
+# git 模式载荷核对：node_modules/<pkg> 必须是实体目录（非 symlink）且包内关键文件齐备 → 打印 ok/bad
+profile_verify_git_payload() { # profile_verify_git_payload <dir>
+  local dir="${1:?}"
+  PROFILE_DIR_ENV="$dir" PLUGIN_NAME_ENV="$PLUGIN_PKG" node -e '
+const fs = require("fs"), path = require("path");
+const dir = process.env.PROFILE_DIR_ENV, name = process.env.PLUGIN_NAME_ENV;
+const pkgDir = path.join(dir, "node_modules", name);
+let st;
+try { st = fs.lstatSync(pkgDir); } catch { process.stdout.write("bad"); process.exit(0); }
+if (!st.isDirectory() || st.isSymbolicLink()) { process.stdout.write("bad"); process.exit(0); }
+const files = ["package.json", "lib/index.js", "lib/client.js", "cordis.patch.yml"];
+const missing = files.filter((f) => !fs.existsSync(path.join(pkgDir, f)));
+process.stdout.write(missing.length ? "bad" : "ok");
+'
+}
+
+# 安装中断/失败时恢复本次安装前的备份（package.json + 可选 pnpm-lock.yaml）
+restore_install_backup() { # restore_install_backup <dir> <pkg_bak> <lock_bak>
+  local dir="${1:?}" pkg_bak="${2:?}" lock_bak="${3:-}"
+  if [[ ! -f "$pkg_bak" ]]; then
+    log_warn "备份不存在，无法自动恢复: $pkg_bak"
+    return 1
+  fi
+  cp -p "$pkg_bak" "$dir/package.json"
+  if [[ -n "$lock_bak" && -f "$lock_bak" ]]; then
+    cp -p "$lock_bak" "$dir/pnpm-lock.yaml"
+    log_warn "已恢复 package.json + pnpm-lock.yaml（本次安装前备份）"
+  else
+    log_warn "已恢复 package.json（本次安装前备份）"
+  fi
+  return 0
 }
 
 # pnpm 运行器：优先进 dsh CLI 转发（官方入口），否则直接 pnpm
@@ -502,6 +604,11 @@ push_stage() {
 # --- 阶段 B：安装 ----------------------------------------------------------
 
 print_install_next_steps() {
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    log_inst "安装来源：GitHub spec $(git_spec)（可复现安装）"
+  else
+    log_inst "安装来源：link: 开发模式（${REPO_ROOT}）"
+  fi
   log_inst "后续步骤（必须人工执行）："
   printf '    1) 重启 DeepSeek Harness 桌面版（替换已安装代码不免重启）\n'
   printf '    2) 刷新页面，已开始的会话头部应出现「终端」tab（blank 会话不显示）\n'
@@ -512,6 +619,7 @@ print_install_next_steps() {
   printf '           http://127.0.0.1:<DSH端口>/terminal-panel/rpc\n'
   printf '    4) 排查：dsh --profile %s --dump-config | grep -A3 %s\n' "$PROFILE" "$PLUGIN_PKG"
   printf '    5) 撤销安装：./deploy/publish-and-install.sh --rollback --profile %s\n' "$PROFILE"
+  printf '    6) 切回 link: 开发模式：./deploy/publish-and-install.sh --rollback --to-link --profile %s\n' "$PROFILE"
 }
 
 install_stage() {
@@ -519,6 +627,11 @@ install_stage() {
   dir="$(profile_dir)"
   local pkg_file="$dir/package.json"
   log_inst "profile=$PROFILE dir=$dir"
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    log_inst "安装来源: GitHub spec（需联网）= $(git_spec)"
+  else
+    log_inst "安装来源: 本地 link:（开发模式）"
+  fi
 
   [[ -d "$dir" ]] || die "profile 目录不存在: $dir" "$EXIT_INSTALL" \
     "可用 profile：$(ls -1 "${DSH_HOME:?}/profiles" 2>/dev/null | tr '\n' ' ')"
@@ -552,8 +665,18 @@ install_stage() {
   local bundle_desc="缺失"; [[ "$has_bundle" == "1" ]] && bundle_desc="已选入"
   log_inst "当前状态: dependency=$dep_desc | bundle=$bundle_desc | bundles 共 $bundle_count 项"
 
-  if [[ "$has_dep" == "1" && "$cur_dep" == "$link_spec" && "$has_bundle" == "1" ]]; then
-    log_inst "已安装且指向本仓库，无需变更（幂等跳过）"
+  local want_spec="$link_spec"
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    want_spec="$(git_spec)"
+  fi
+  if [[ "$has_dep" == "1" && "$cur_dep" == "$want_spec" && "$has_bundle" == "1" ]]; then
+    if [[ "$SOURCE_MODE" == "git" ]]; then
+      local payload_ok=""
+      payload_ok="$(profile_verify_git_payload "$dir")"
+      [[ "$payload_ok" == "ok" ]] || die "已声明同一 git spec（${want_spec}）但 node_modules 载荷不完整（非实体目录或缺关键文件）" "$EXIT_INSTALL" \
+        "先 --rollback 恢复，再重跑 --no-push --from-git ${GIT_REF}；或改用 plugin_manager install_bundle"
+    fi
+    log_inst "已安装且 spec 一致（${want_spec}），无需变更（幂等跳过）"
     print_install_next_steps
     log_done "安装阶段完成（无变更）"
     return 0
@@ -575,7 +698,55 @@ install_stage() {
   fi
 
   # --- 选择安装路径 ---
-  if [[ "$runner" == "dsh" ]]; then
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    local spec=""
+    spec="$(git_spec)"
+    log_warn "GitHub 模式需要联网（拉取 ${spec}）；超时保护 ${TIMEOUT_SECS}s；失败/超时自动恢复本次备份"
+    if (( DRY_RUN )); then
+      if [[ "$runner" == "dsh" ]]; then
+        log_plan "timeout ${TIMEOUT_SECS}s: dsh plugin --profile $PROFILE add $spec   # 需联网"
+      else
+        log_plan "(cd $dir && timeout ${TIMEOUT_SECS}s: pnpm add $spec)   # 需联网"
+      fi
+      log_plan "node 补丁 package.json：确保 dsh.profile.bundles 含 ${PLUGIN_PKG}（不改 dependency，保留 pnpm 写入的 git spec）"
+      log_plan "核对：node_modules/${PLUGIN_PKG} 必须是实体目录 + lib/index.js / lib/client.js / cordis.patch.yml 存在"
+      log_plan "核对：dependency 必须是非 link 的 git spec（期望 ${spec}）"
+    else
+      local add_rc=0
+      if [[ "$runner" == "dsh" ]]; then
+        run_with_timeout "$TIMEOUT_SECS" "git 安装（dsh plugin add）" \
+          dsh plugin --profile "$PROFILE" add "$spec" || add_rc=$?
+      else
+        run_with_timeout_in "$dir" "$TIMEOUT_SECS" "git 安装（pnpm add）" \
+          pnpm add "$spec" || add_rc=$?
+      fi
+      if (( add_rc != 0 )); then
+        log_warn "git 安装失败（rc=${add_rc}）→ 自动恢复本次安装前备份"
+        restore_install_backup "$dir" "$bak" "$lock_bak" || true
+        local conv_rc=0
+        if [[ "$runner" == "dsh" ]]; then
+          _timeout_cmd "$TIMEOUT_SECS" dsh plugin --profile "$PROFILE" install --offline || conv_rc=$?
+        elif [[ -n "$runner" ]]; then
+          ( cd "$dir" && _timeout_cmd "$TIMEOUT_SECS" pnpm install --offline ) || conv_rc=$?
+        else
+          conv_rc=1
+        fi
+        if (( conv_rc == 0 )); then
+          log_warn "已用离线安装收敛 node_modules"
+        else
+          log_warn "收敛失败（rc=${conv_rc}）：可手动在 profile 目录执行 pnpm install --offline"
+        fi
+        if (( add_rc == 124 || add_rc == 142 )); then
+          die "git 安装超时（${TIMEOUT_SECS}s），已自动回滚到安装前状态" "$EXIT_TIMEOUT" \
+            "放宽超时重试：--timeout 300 --from-git ${GIT_REF}；或改用 plugin_manager install_bundle target:'${spec}'"
+        fi
+        die "git 安装失败（rc=${add_rc}），已自动回滚到安装前状态" "$EXIT_INSTALL" \
+          "确认网络/GitHub 可达后重试；或改用 plugin_manager install_bundle target:'${spec}'"
+      fi
+      log_inst "补 bundle 选择（pnpm add 只装包，不选 bundle）"
+      profile_ensure_bundle "$dir" >/dev/null
+    fi
+  elif [[ "$runner" == "dsh" ]]; then
     log_inst "正规路径：dsh plugin --profile $PROFILE add ${link_spec}（dsh CLI 转发 pnpm）"
     if (( DRY_RUN )); then
       log_plan "timeout ${TIMEOUT_SECS}s: dsh plugin --profile $PROFILE add $link_spec"
@@ -626,14 +797,59 @@ install_stage() {
     log_inst "dry-run 未改动任何文件；真实运行会写 ${pkg_file}（先备份）、可能更新 pnpm-lock.yaml 与 node_modules"
   else
     local post=""
-    post="$(profile_verify_installed "$dir")"
-    [[ "$post" == "ok" ]] || die "安装后核对失败：package.json 未正确写入 link 依赖或 bundle 选择" "$EXIT_INSTALL" \
-      "用 --rollback 恢复，然后改用 plugin_manager 的 install_bundle"
-    log_inst "核对通过：dependency=${link_spec}，bundle 已选入"
+    post="$(profile_verify_installed "$dir" "$SOURCE_MODE")"
+    if [[ "$post" != "ok" ]]; then
+      if [[ "$SOURCE_MODE" == "git" ]]; then
+        restore_install_backup "$dir" "$bak" "$lock_bak" || true
+      fi
+      die "安装后核对失败：依赖 spec / bundle 选择不符合 ${SOURCE_MODE} 模式预期" "$EXIT_INSTALL" \
+        "用 --rollback 恢复，然后改用 plugin_manager 的 install_bundle"
+    fi
+    if [[ "$SOURCE_MODE" == "git" ]]; then
+      local payload=""
+      payload="$(profile_verify_git_payload "$dir")"
+      if [[ "$payload" != "ok" ]]; then
+        restore_install_backup "$dir" "$bak" "$lock_bak" || true
+        die "安装后核对失败：node_modules/${PLUGIN_PKG} 不是实体目录或缺关键文件（已自动回滚）" "$EXIT_INSTALL" \
+          "检查 pnpm add 输出；或改用 plugin_manager install_bundle"
+      fi
+      log_inst "核对通过（git 模式）：dependency=$(git_spec)，bundle 已选入，node_modules 为实体目录且关键文件齐备"
+    else
+      log_inst "核对通过（link 模式）：dependency=${link_spec}，bundle 已选入"
+    fi
   fi
 
   print_install_next_steps
   log_done "安装阶段完成"
+}
+
+# 把 profile 安装切换/恢复为 link: 开发模式（--rollback --to-link 使用）
+rollback_to_link_switch() { # rollback_to_link_switch <dir>
+  local dir="${1:?}"
+  local repo_abs=""
+  repo_abs="$(cd -- "$REPO_ROOT" && pwd -P)"
+  local link_spec="link:$repo_abs"
+  log_inst "目标：恢复为 link: 开发模式（${link_spec}）"
+  if (( DRY_RUN )); then
+    log_plan "node 补丁 package.json: dependencies.$PLUGIN_PKG=\"$link_spec\" ; dsh.profile.bundles += ${PLUGIN_PKG}"
+    log_plan "pnpm 安装把 link: 依赖落成 symlink（offline 优先，失败回退联网）"
+    return 0
+  fi
+  local patch_out=""
+  patch_out="$(profile_patch_add "$dir" "$link_spec")"
+  log_inst "package.json 已更新: $patch_out"
+  local runner=""
+  runner="$(resolve_pnpm_runner)"
+  if [[ -z "$runner" ]]; then
+    die "未找到 dsh CLI/pnpm，无法把 link: 依赖落盘" "$EXIT_INSTALL" \
+      "改用 plugin_manager：remove_bundle 后 install_bundle target:'$repo_abs'"
+  fi
+  pnpm_install_profile "$dir" "$runner" 1
+  local lv=""
+  lv="$(profile_verify_installed "$dir" link)"
+  [[ "$lv" == "ok" ]] || die "切回 link 模式后核对失败（dependency 或 bundle 不匹配）" "$EXIT_INSTALL" \
+    "改用 plugin_manager：remove_bundle 后 install_bundle target:'$repo_abs'"
+  log_inst "已恢复 link: 开发模式（dependency=${link_spec}）"
 }
 
 # --- 回滚 ------------------------------------------------------------------
@@ -650,6 +866,12 @@ rollback_stage() {
   latest="$(find "$dir" -maxdepth 1 -type f -name 'package.json.bak.*' ! -name '*.restored' -print 2>/dev/null \
             | LC_ALL=C sort | tail -n 1)"
   if [[ -z "$latest" ]]; then
+    if (( ROLLBACK_TO_LINK )); then
+      log_inst "没有 package.json 备份；直接改为 link: 开发模式（--to-link）"
+      rollback_to_link_switch "$dir"
+      log_done "回滚阶段完成（已切到 link: 模式）"
+      return 0
+    fi
     log_inst "没有可用的 package.json 备份 —— 无需回滚（幂等）"
     log_done "回滚阶段完成（无操作）"
     return 0
@@ -664,6 +886,10 @@ rollback_stage() {
     [[ -f "$lock_bak" ]] && log_plan "cp -p $lock_bak $dir/pnpm-lock.yaml"
     log_plan "node 补丁：从 dsh.profile.bundles 移除 ${PLUGIN_PKG}（若仍存在）"
     log_plan "pnpm 安装以收敛 node_modules（offline 优先，失败回退联网）"
+    if (( ROLLBACK_TO_LINK )); then
+      log_plan "（--to-link）node 补丁：dependencies.$PLUGIN_PKG=\"link:<仓库根>\"（恢复 link: 开发模式）"
+      log_plan "（--to-link）pnpm 安装把 link: 依赖落成 symlink（offline 优先）"
+    fi
     log_inst "dry-run 未改动任何文件"
     log_done "回滚阶段（dry-run）完成"
     return 0
@@ -692,7 +918,12 @@ rollback_stage() {
     log_inst "pnpm 已重新收敛 node_modules"
   fi
 
-  log_inst "回滚完成。重启 DSH 桌面版 + 刷新页面后「终端」tab 应消失。"
+  if (( ROLLBACK_TO_LINK )); then
+    rollback_to_link_switch "$dir"
+    log_inst "回滚完成（link: 开发模式）。重启 DSH 桌面版 + 刷新页面后生效。"
+  else
+    log_inst "回滚完成。重启 DSH 桌面版 + 刷新页面后「终端」tab 应消失。"
+  fi
   log_done "回滚阶段完成"
 }
 
@@ -708,8 +939,18 @@ main() {
   fi
   (( DRY_RUN )) && mode="${mode} (dry-run)"
 
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    mode="${mode} [git:${GIT_REF}]"
+  else
+    mode="${mode} [link]"
+  fi
   log "start" "dsh-terminal-panel $mode"
   log "info" "repo=$REPO_ROOT profile=$PROFILE dsh_home=$DSH_HOME"
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    log "info" "install source = GitHub spec: $(git_spec)（需联网）"
+  else
+    log "info" "install source = link: 开发模式（${REPO_ROOT}）"
+  fi
 
   if (( DO_ROLLBACK )); then
     rollback_stage
