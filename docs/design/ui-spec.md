@@ -1,8 +1,17 @@
-# 终端 · DSH 插件 UI/UX 设计规格（v10）
+# 终端 · DSH 插件 UI/UX 设计规格（v10.1）
 
 > 设计稿：Figma 本地文档 “Untitled” → Page「命令实况 · UI/UX 设计」
 > A `12:2` 主视图 · B `12:240` 会话范围筛选 · C `12:674` 状态与规则 · D `12:1005` Light · E `12:895` 边界状态
-> 状态：**v10（任务描述/角色名展示，契约 v12 对应）** — v1→v9 已有九轮评审；v10 新增：卡片标题优先工具 `description`、agent chip 主标签用角色名（`roleName`）、搜索覆盖 description/角色名。**v11.1（微）**：linger 滞留 10s→3s（`LINGER_DELAY_MS=3000`）。
+> 状态：**v10.1（微：浮层 fixed 定位，契约 v12.1 对应）** — v10（任务描述/角色名展示）之上新增：工具栏「会话范围」下拉与行菜单等浮层统一 **fixed 定位**，不再被父容器 `overflow:hidden` 裁剪。**v11.1（微）**：linger 滞留 10s→3s（`LINGER_DELAY_MS=3000`）。
+
+## v10.1 相对 v10 的变更（微版本：浮层定位修复）
+
+1. **浮层统一 fixed 定位**：工具栏「会话范围」下拉、卡片/已完成行的 `⋯` 菜单等**浮层**一律 `position:fixed`，**脱离父容器 `overflow:hidden`**（修复真机「下拉只露一条」缺陷）。
+2. **会话范围下拉**：打开时按**触发按钮 `getBoundingClientRect()`** 计算位置（`top = bottom + 4`；右侧溢出则右对齐并向左夹取），`max-height = min(320, innerHeight - top - 8)`、下方空间不足翻到上方，**视口内夹取**并可内部滚动；**Esc / 外部点击关闭**；`resize` 与面板内滚动（capture）时**跟随锚点重算**，按钮跑出视口/空间不足则关闭；`z-index ≥ 60`。
+3. **行菜单（既有 `tp-menu-fixed`）**：已 fixed、外部点击关闭、不被列表裁剪；其**视口翻转/Esc 统一**列为后续项（与下拉的完整规则存在差距，见 §3 规则 34 注）。
+4. 纯展示层：无协议/数据变更，冻结表 53 键不变。
+
+## v10 相对 v9 的变更（第十轮：展示字段，契约 v12 对应）
 
 ## v10 相对 v9 的变更（第十轮：展示字段，契约 v12 对应）
 
@@ -161,6 +170,7 @@
 31. **标题优先级（v10）**：卡片/已完成行标题 = `Run.description`（若有）否则命令第一条非空行；完整命令保留在输入块与 `title` 悬浮（description 与 command 各占一行）。
 32. **角色 chip（v10）**：chip 主标签 = `agent.roleName`（主会话 `lead`、队友/子代理显示各自名称、未知 `—`）；会话标题 `agent.name` 仍用于会话 chip；缺失 roleName 时回退 name。
 33. **搜索（v10）**：除 command/输出/显示名外，额外匹配 `description` 与 `roleName`；命中高亮规则不变。
+34. **浮层 fixed 定位（v10.1）**：会话范围下拉 / 行菜单等浮层统一 `position:fixed`（**不得**用 `absolute` 依赖父容器，父级 `overflow:hidden` 不得裁剪）。**会话范围下拉**：按锚点 `getBoundingClientRect()` 定位、**视口内夹取**（右/下越界翻转）、`max-height` 限视口内滚动、`Esc`/外部点击关闭、滚动/resize 跟随重算、`z-index ≥ 60`。**行菜单（既有）**：已 fixed + 外部点击关闭 + 右对齐简单夹取（`left ≥ 8`）；其 Esc 与视口翻转统一为后续项（当前不一致，见 A42 注）。
 
 ## 4. 筛选
 
@@ -251,3 +261,4 @@
 | A39 | 标题优先 description（v10） | 有 `Run.description` 时卡片/已完成行标题显示描述（单行 ≤200）；无描述回退命令首行；完整命令在输入块 + `title` 悬浮 | 纯函数 `runTitle`/静态断言 + 真机（manual/Unverified） |
 | A40 | 角色 chip（v10） | 主会话 chip 主标签=`lead`；队友/子代理显示各自名称；未知=`—`；会话标题仍用于会话 chip | Host/client 用例 + 真机（manual/Unverified） |
 | A41 | 搜索命中 description/角色名（v10） | 搜索词可命中 `description` 与 `agent.roleName`（高亮、即时过滤） | 纯函数搜索用例 + 真机（manual/Unverified） |
+| A42 | 浮层 fixed 定位不裁剪（v10.1） | **会话范围下拉**：打开后完整可见、可逐项勾选、不被工具栏/列表裁剪；靠右/靠下/窄窗口不越界（翻转/夹取）；滚动/resize 不跑飞；Esc/外部点击关闭。**行菜单**：fixed 不裁剪 + 外部点击关闭（Esc/视口翻转未覆盖，后续项） | 真机（manual/Unverified）：窗口拉窄/贴边/滚动时打开下拉 |

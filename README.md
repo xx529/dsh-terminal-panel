@@ -5,7 +5,7 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 已由用户确认真机验收通过（2026-10-26，v12 / `fbe8586` / tag `v0.1.0`）** — 用户在真实 DSH 环境**口头确认整体可用，未逐条提供截图 / Console / Network 证据**；ui-spec A1–A41 的逐条 manual 证据仍缺（对外宣称前需补证）。门禁：**382 tests / 382 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+**状态：v0.1.0 已由用户确认真机验收通过（2026-10-26，v12 / `fbe8586` / tag `v0.1.0`）** — 用户在真实 DSH 环境**口头确认整体可用，未逐条提供截图 / Console / Network 证据**；ui-spec A1–A42 的逐条 manual 证据仍缺（对外宣称前需补证）。门禁：**382 tests / 382 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel> · Tag：[`v0.1.0`](https://github.com/xx529/dsh-terminal-panel/releases/tag/v0.1.0) · 安装/回滚：[`docs/install.md`](docs/install.md)
 
@@ -126,7 +126,7 @@ npm run verify
 
 ## 链接
 
-- 设计规格（v10，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
+- 设计规格（v10.1，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
 - 架构与接口契约（v12）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
@@ -184,7 +184,7 @@ npm run verify
 ├── icon.svg                     # Plugin Manager 图标（原创终端字形，16/24px 可读）
 ├── locale/{zh,en}.json          # Plugin Manager 展示元数据（meta.title / meta.description）
 ├── docs/
-│   ├── design/ui-spec.md        # v10 设计规格（验收基线 + A1–A41）
+│   ├── design/ui-spec.md        # v10.1 设计规格（验收基线 + A1–A42）
 │   ├── architecture/contract.md # 双端契约（v12）
 │   ├── research/dsh-plugin-apis.md # scout T1 取证（契约事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）

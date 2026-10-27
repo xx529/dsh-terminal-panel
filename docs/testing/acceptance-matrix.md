@@ -282,3 +282,9 @@ node tests/e2e/smoke.mjs
 | A40 | 角色 chip：主会话=`lead`；队友/子代理=displayName；未知=`—`；会话标题仍用于 chip | auto（Host roleName + client 静态）+ manual | `host/v12.test.mjs::agent.roleName…`、`roleName 源码兜底…`；`client/v12.test.mjs::AgentChip（静态）…` | Host/Client **PASS**；真机 chip 观感 **Unverified** |
 | A41 | 搜索命中 `description` + `agent.roleName`（高亮、即时过滤） | auto（纯函数）+ manual | `client/v12.test.mjs::searchMatch/filterRuns：命中 description 与 roleName…`（大小写不敏感/空 query/未命中断言） | 纯函数 **PASS**；真机高亮 **Unverified** |
 
+## 18. ui-spec v10.1 A42 映射（会话范围下拉 fixed 定位）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A42 | 浮层 fixed 定位不裁剪：完整可见/可勾选/不越界（翻转·夹取）/滚动·resize 不跑飞/Esc·外点关闭；行菜单 fixed 未回归 | auto（静态 + mini 渲染）+ manual | `client/scope-menu.test.mjs`：静态样式/源码级定位规则；mini 渲染 `top/left/width/maxHeight`、右侧溢出右对齐、窄视口左夹 8px、近底部翻转、矮视口 maxHeight、无空间关闭、Esc/外点/内部点击、resize·scroll 重算、`aria-checked` 立即更新；行菜单 `.tp-menu-fixed`/`.tp-menu` 静态未回归 | 静态/渲染 **PASS**；真机窗口拉窄/贴边/滚动 **Unverified** |
+

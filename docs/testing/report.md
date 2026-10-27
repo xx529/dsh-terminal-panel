@@ -398,3 +398,30 @@ A34 A/B 真机互不可见、A35 切回 A 数据完整、A36 迟到帧不闪、A
 
 - Host/Client 行为与 contract v12 §12.1–§12.3 一致；冻结表 53 键、`LINGER_DELAY_MS=3000`、`COLLAPSE_DELAY_MS=10000`、v11 隔离均未回退。
 
+## 19. v10.1 微改：会话范围下拉 fixed 定位（T76，ui-spec v10.1 A42）
+
+> 触发：会话范围下拉被 `.tp-toolbar{overflow:hidden}` 裁剪 → T74 改为 fixed 定位（按按钮 rect 计算/视口夹取/resize·scroll 重算/外点与 Esc 关闭）。
+> 基线：`382 tests / 91 smoke`（v12）→ **393 tests / 393 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 19.1 新增用例（11 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/client/scope-menu.test.mjs` | 11 | 静态：`.tp-scope-menu{position:fixed;z-index:60}`、toolbar 仍 `overflow:hidden` + 46px + nowrap、行菜单 `tp-menu-fixed` 未回归、`.tp-menu` 仍 absolute；源码级定位规则（`rect.bottom+4`、`maxHeight=min(320,innerHeight-top-8)`、右侧右对齐 `max(8,rect.right-menuWidth)`、`<120px` 翻转、`<40px` 关闭、resize/scroll capture、Esc、外部 pointerdown capture）；mini React 渲染断言：正常位置 top=134/width=340/maxHeight=320、右侧溢出 left=420、窄视口 width=240/left=8、近底部翻转 top=176、矮视口 maxHeight=258、无空间关闭、Esc/外点关闭（内部点击不关闭）、resize/scroll 重算、勾选项 `aria-checked` 点击立即更新 |
+| `tests/helpers/mini-panel.mjs` | 新增 helper | 迷你 React 渲染器（组件执行 + hooks + effect + host 节点树 + fake window/document/fetch/timers）；**仅运行 Toolbar 的下拉 effect**（避免 usePanelSession 轮询在测试进程留下 RPC timer），host 节点 `getBoundingClientRect` 由 rig 提供 |
+
+### 19.2 方法与限制（如实标注）
+
+- frontend **未新增可导出纯函数**（`__internals` 保持 **53 键**），定位逻辑在 `Toolbar` 的 effect 内；因此用「源码级静态断言 + mini 渲染实际 inline style/交互」覆盖，未为测试改冻结表。
+- mini 渲染器不实现真实浏览器布局：锚点 rect/视口尺寸来自 rig，`getBoundingClientRect` 为模拟值；它能验证「计算 → inline style」与事件/重算链，但不能替代真机目视（A42 仍 Unverified）。
+- 只运行 Toolbar effect 属于测试基建的收敛手段（非产品行为差异）；真实 client 的所有 effect 由既有装配/全量测试覆盖。
+
+### 19.3 覆盖映射位置
+
+- ui-spec v10.1 **A42** ↔ 用例：`docs/testing/acceptance-matrix.md` **§18**。
+- 真机项：窗口拉窄/贴边/滚动时打开下拉、行菜单外部点击，仍 Unverified（既有 19 项清单不变）。
+
+### 19.4 未发现实现缺陷
+
+- 定位/翻转/夹取/关闭阈值与 T74 交接一致；toolbar 裁剪约束保留；行菜单未被误改；`__internals` 53 键与 v12 全部回归绿。
+
