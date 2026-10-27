@@ -5,14 +5,14 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 已由用户确认真机验收通过（2026-10-26，v12 / `fbe8586` / tag `v0.1.0`）** — 用户在真实 DSH 环境**口头确认整体可用，未逐条提供截图 / Console / Network 证据**；ui-spec A1–A42 的逐条 manual 证据仍缺（对外宣称前需补证）。门禁：**382 tests / 382 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+**状态：v0.1.0 已由用户确认真机验收通过（2026-10-26，v12 / `fbe8586` / tag `v0.1.0`）；当前发布 `v0.1.1`（tag → `9f3fed1`，含下拉 fixed 修复）** — 用户在真实 DSH 环境**口头确认整体可用，未逐条提供截图 / Console / Network 证据**；ui-spec A1–A42 的逐条 manual 证据仍缺（对外宣称前需补证）。门禁：**393 tests / 393 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
 >
-> 仓库：<https://github.com/xx529/dsh-terminal-panel> · Tag：[`v0.1.0`](https://github.com/xx529/dsh-terminal-panel/releases/tag/v0.1.0) · 安装/回滚：[`docs/install.md`](docs/install.md)
+> 仓库：<https://github.com/xx529/dsh-terminal-panel> · Tags：[`v0.1.0`](https://github.com/xx529/dsh-terminal-panel/releases/tag/v0.1.0) / [`v0.1.1`](https://github.com/xx529/dsh-terminal-panel/releases/tag/v0.1.1)（当前发布） · 安装/回滚：[`docs/install.md`](docs/install.md)
 
 | 门 | 结果 | 命令 |
 |---|---|---|
 | 语法自检 | 通过 | `npm run check` |
-| 单测 | **382 tests / 382 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；以 tester T69 最终报告为准） | `npm test` |
+| 单测 | **393 tests / 393 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；以 tester T69 最终报告为准） | `npm test` |
 | Host mock 冒烟 | **PASS — 91/91 checks passed**，exit 0 | `npm run smoke` |
 | 一键全验 | check → test → smoke，**exit 0** | `npm run verify` |
 | 契约 | **v12**（展示字段：description/roleName + P0 会话隔离） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
@@ -105,7 +105,7 @@
 
 ```bash
 npm run check     # node --check lib/index.js && node --check lib/client.js
-npm test          # node --test "tests/**/*.test.mjs"（382 用例）
+npm test          # node --test "tests/**/*.test.mjs"（393 用例）
 npm run smoke     # node scripts/smoke-host.mjs（91 checks，exit 0）
 # 或一次跑完：
 npm run verify
@@ -115,14 +115,38 @@ npm run verify
 
 ## 安装 / 发布
 
-一键脚本（推送 + 安装进 DSH profile；先 `--dry-run` 看计划，不改任何文件）：
+### GitHub 安装（推荐，v0.1.1）
 
-```bash
-./deploy/publish-and-install.sh --dry-run
-./deploy/publish-and-install.sh --timeout 300   # 安装阶段联网 pnpm 默认 120s 超时，超时 exit 6；优先离线
+```jsonc
+// plugin_manager
+{ "action": "install_bundle", "target": "github:xx529/dsh-terminal-panel#v0.1.1" }
 ```
 
-`--timeout <秒>`（默认 **120**，范围 **10–3600**）覆盖 `dsh plugin add/install` 与 `pnpm install` 调用（安装与回滚同路径）；无 GNU `timeout` 时依次降级 `gtimeout` → `perl alarm`，超时统一 **exit 6**（shell 可能打印一行 `Alarm clock: 14`，属正常）。完整选项/回滚见 [`docs/install.md`](docs/install.md) §1.3。
+- 可直接覆盖已装的本地 `link:` 依赖；**失败自动回滚** profile `package.json`/`pnpm-lock.yaml`；成功后 `application: restart-required` → **重启 DSH 桌面版 + 刷新页面**。
+- 不可变 commit（tag 被移动时）：`github:xx529/dsh-terminal-panel#9f3fed1271150c39af210bdd0e17c79c04ce5a83`
+- 升级：把 `#v0.1.1` 换成新 tag 再 `install_bundle` + 重启；回滚/排障见 [`docs/install.md`](docs/install.md) §1.1/§4。
+- 版本口径：`v0.1.1` 是 tag（指向 commit `9f3fed1`）；包内 `package.json` version 仍显示 `0.1.0`，属预期。
+
+### 本地开发模式（link:，可选）
+
+`plugin_manager({ action: 'install_bundle', target: '/Users/lzx/Documents/GitHub/dsh-terminal-panel' })` ——
+写 `link:` 依赖、`node_modules` 为 symlink，改代码生效快；**不是发布安装**（测的是工作树而非打包件）。
+
+### 一键脚本（两种来源：GitHub 生产 / 本地 link 开发）
+
+推送 + 安装 + 回滚一条命令；默认仍是 **link 开发模式**，`--from-git` 切 **GitHub spec 生产模式**：
+
+```bash
+./deploy/publish-and-install.sh --dry-run                    # 看计划（打印来源/spec，不改文件）
+./deploy/publish-and-install.sh --from-git v0.1.1            # 生产：GitHub spec（需联网；装后重启）
+./deploy/publish-and-install.sh --no-push                    # 开发：默认 link:（symlink，离线可装）
+./deploy/publish-and-install.sh --rollback --to-link         # 回滚并切回 link 开发模式
+./deploy/publish-and-install.sh --timeout 300                # 安装/pnpm 超时放宽（默认 120s，超时 exit 6）
+```
+
+- **`--from-git [ref]`**：`github:xx529/dsh-terminal-panel#<ref>`（ref 默认 `v0.1.1`，可 tag/commit/branch）；**需联网**；`node_modules` 为实体目录；安装失败/超时**自动恢复安装前 `package.json`+`pnpm-lock.yaml`**（exit 5 安装失败 / exit 6 超时）。
+- **`--rollback --to-link`**（别名 `--from-link`）：从 git 模式切回 link 开发模式；`--rollback` 单独用 = 恢复备份 + 移出 bundles。
+- 超时三路降级 GNU `timeout`→`gtimeout`→`perl alarm`；完整选项/校验/退出码见 [`docs/install.md`](docs/install.md) §1.3，spec 依据 [`docs/research/terminal-panel-github-install-2026-10-27.md`](docs/research/terminal-panel-github-install-2026-10-27.md)。
 
 ## 链接
 
@@ -131,7 +155,7 @@ npm run verify
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
 - 架构与接口契约（v12）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
-- 测试报告（T5 基线 236；v12 回归后 382，以 tester T69 最终报告为准）：[`docs/testing/report.md`](docs/testing/report.md)
+- 测试报告（T5 基线 236；v12 回归后 393，以 tester T69 最终报告为准）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
@@ -189,7 +213,7 @@ npm run verify
 │   ├── research/dsh-plugin-apis.md # scout T1 取证（契约事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/acceptance-matrix.md # 验收矩阵
-│   ├── testing/report.md        # 测试报告（T5 基线 236 → v12 382，覆盖说明）
+│   ├── testing/report.md        # 测试报告（T5 基线 236 → v12 393，覆盖说明）
 │   ├── testing/integration-report.md # 集成报告（T6，已完成 ad39516）
 │   ├── retro/2026-10-26-bash-live-source.md # T4 触发复盘（closed）
 │   └── install.md               # 安装 / 生效 / 验证 / 回滚（证据版）
