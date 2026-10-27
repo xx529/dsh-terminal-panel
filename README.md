@@ -5,14 +5,14 @@
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel>
 
-**状态：v0.1.0 已由用户确认真机验收通过（2026-10-26，v12 / `fbe8586` / tag `v0.1.0`）；当前发布 `v0.1.1`（tag → `9f3fed1`，含下拉 fixed 修复）** — 用户在真实 DSH 环境**口头确认整体可用，未逐条提供截图 / Console / Network 证据**；ui-spec A1–A42 的逐条 manual 证据仍缺（对外宣称前需补证）。门禁：**393 tests / 393 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+**状态：v0.1.0 已由用户确认真机验收通过（2026-10-26，v12 / `fbe8586` / tag `v0.1.0`）；当前发布 `v0.1.1`（tag → `9f3fed1`，含下拉 fixed 修复）** — 用户在真实 DSH 环境**口头确认整体可用，未逐条提供截图 / Console / Network 证据**；ui-spec A1–A44 的逐条 manual 证据仍缺（对外宣称前需补证）。门禁：**400 tests / 400 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
 >
 > 仓库：<https://github.com/xx529/dsh-terminal-panel> · Tags：[`v0.1.0`](https://github.com/xx529/dsh-terminal-panel/releases/tag/v0.1.0) / [`v0.1.1`](https://github.com/xx529/dsh-terminal-panel/releases/tag/v0.1.1)（当前发布） · 安装/回滚：[`docs/install.md`](docs/install.md)
 
 | 门 | 结果 | 命令 |
 |---|---|---|
 | 语法自检 | 通过 | `npm run check` |
-| 单测 | **393 tests / 393 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；以 tester T69 最终报告为准） | `npm test` |
+| 单测 | **400 tests / 400 pass / 0 fail / 0 skip / 0 todo**（`node:test` 零依赖；以 tester T69 最终报告为准） | `npm test` |
 | Host mock 冒烟 | **PASS — 91/91 checks passed**，exit 0 | `npm run smoke` |
 | 一键全验 | check → test → smoke，**exit 0** | `npm run verify` |
 | 契约 | **v12**（展示字段：description/roleName + P0 会话隔离） | [`docs/architecture/contract.md`](docs/architecture/contract.md) |
@@ -105,7 +105,7 @@
 
 ```bash
 npm run check     # node --check lib/index.js && node --check lib/client.js
-npm test          # node --test "tests/**/*.test.mjs"（393 用例）
+npm test          # node --test "tests/**/*.test.mjs"（400 用例）
 npm run smoke     # node scripts/smoke-host.mjs（91 checks，exit 0）
 # 或一次跑完：
 npm run verify
@@ -150,12 +150,12 @@ npm run verify
 
 ## 链接
 
-- 设计规格（v10.1，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
+- 设计规格（v10.2，验收基线）：[`docs/design/ui-spec.md`](docs/design/ui-spec.md)
 - 设计图（A–F 六板）：[`.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/`](.figma/assets/e7b0e68d-51fe-4f9a-9247-0698ba78ee0d/)
 - Figma 原型恢复指南：[`docs/design/figma-restore.md`](docs/design/figma-restore.md)（本地可导入资产见 [`docs/design/figma-export/`](docs/design/figma-export/)）
 - 架构与接口契约（v12）：[`docs/architecture/contract.md`](docs/architecture/contract.md)
 - 验收矩阵：[`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md)
-- 测试报告（T5 基线 236；v12 回归后 393，以 tester T69 最终报告为准）：[`docs/testing/report.md`](docs/testing/report.md)
+- 测试报告（T5 基线 236；v12 回归后 400，以 tester T69 最终报告为准）：[`docs/testing/report.md`](docs/testing/report.md)
 - 集成报告（T6，已完成）：[`docs/testing/integration-report.md`](docs/testing/integration-report.md)（commit `ad39516`；H1/M2 已修复于 `4bc721e`）
 - 取证报告（scout T1）：[`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md)
 - 安装 / 生效 / 验证 / 回滚：[`docs/install.md`](docs/install.md)
@@ -192,6 +192,7 @@ npm run verify
 10. **terminal 无 Agent 时只能看元信息（v7）**：默认走 `tools/execute` 事件兜底（`terminalController` 是侧栏终端注册表、默认关闭），`outputMode:'meta-only'` + `notice`，读不到连续实时输出（tier3 片段非全量）、停止不可用；但**不再静默 0 条**（诊断字段见 contract §7.2）。
 11. **composer 隐藏是 best-effort（v7）**：优先官方能力，否则 `[data-conversation-content]` 标记 + CSS（找不到锚点才 body 兜底/静默降级）；宿主 DOM 变更可能失效（其它 tab 不受影响）。
 12. **v7 真机 5 项修复已代码侧完成，并随 v0.1.0 由用户口头确认整体可用**（2026-10-26；逐条 manual 证据仍缺）；ui-spec §9 的 A1–A13 为验收条目（部分 manual）。
+18. **v12.2（微）移除动画（不是缺陷）**：退场 ghost 改绝对浮层不占位，单次移除只触发一次 FLIP；同帧 ≤8 淡出、>8 直接移除；reduced-motion 瞬时。
 17. **v12 新增展示字段（不是缺陷）**：bash/job 可显示工具 description 作为标题；agent chip 主标签为角色名（主会话 lead）；搜索额外命中 description/角色名。
 18. **v11 行为变更（不是缺陷）**：树外 owner 的 terminal 不再展示（v9 升级 live 作废；可靠血缘放开为 v12 未来项）；切会话会清瞬时态并重建 view（缓存+resync 恢复首屏）。
 17. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（最后一行单卡不拉伸；容器 <716px 单列单卡占满）；拖右缘只调统一列宽；重排为同步 ghost+FLIP。
@@ -208,12 +209,12 @@ npm run verify
 ├── icon.svg                     # Plugin Manager 图标（原创终端字形，16/24px 可读）
 ├── locale/{zh,en}.json          # Plugin Manager 展示元数据（meta.title / meta.description）
 ├── docs/
-│   ├── design/ui-spec.md        # v10.1 设计规格（验收基线 + A1–A42）
+│   ├── design/ui-spec.md        # v10.2 设计规格（验收基线 + A1–A44）
 │   ├── architecture/contract.md # 双端契约（v12）
 │   ├── research/dsh-plugin-apis.md # scout T1 取证（契约事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
 │   ├── testing/acceptance-matrix.md # 验收矩阵
-│   ├── testing/report.md        # 测试报告（T5 基线 236 → v12 393，覆盖说明）
+│   ├── testing/report.md        # 测试报告（T5 基线 236 → v12 400，覆盖说明）
 │   ├── testing/integration-report.md # 集成报告（T6，已完成 ad39516）
 │   ├── retro/2026-10-26-bash-live-source.md # T4 触发复盘（closed）
 │   └── install.md               # 安装 / 生效 / 验证 / 回滚（证据版）

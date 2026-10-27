@@ -41,7 +41,8 @@
 | v11 | 2026-10-26 | **P0 会话隔离（协议/安全语义变更）**：单实例单 store 下，**poll 帧/增量消费/removed/prune/resync 全部按 `sessionIds`（本会话树）隔离**（`frameSelection({sessionIds})`/`takeEntries({sessionIds})`/`drainRemoved(sessionIds)`/`prune(now,{protect,sessionIds})`/`resync({sessionIds})`/`mergeClientCursors(cursors,sessionIds)`）；`removed` 改为 `Map<runId,ownerSessionId>` 按会话 drain；`terminalScopes` 收紧为**只等于会话树**（**v9「树外 owner 升级 live」作废**；树外 owner 不展示/不解析，计 `droppedForeignRuns`；`tests/host/v9-owner.test.mjs` 3 条 A27 已按 v11 改写，Lead 批准，见 `docs/testing/report.md` §16.2）；diagnostics 增 5 字段；客户端异会话帧整帧丢弃 + `mergePoll` 过滤 + `SESSION_CACHE_VERSION="v11-1"` + sanitize + 切会话清瞬时态；§11.1.1 更新签名、§11.2 保持 53 键；§12.12 R17；ui-spec 升 v9（A34–A38）。 |
 | v11.1 | 2026-10-26 | **（微）linger 滞留 10s→3s**（Lead 裁决/用户需求，纯客户端展示层）：`lib/client.js` `LINGER_DELAY_MS=3000`；§6.7 三态时序（`min(now+3s, finishedAt+3s)`、hover/focus 恢复重新计 3s）、§11.2 `LINGER_DELAY_MS`/`resumeLinger`、§12.12 R10 同步；**v7「10s 后收起」`COLLAPSE_DELAY_MS=10000` 属已废弃历史路径，保留且不生效**。ui-spec v9 条目 A15–A17 同步 3s。 |
 | v12 | 2026-10-26 | **展示字段增量（additive；触发方=真机反馈/Lead 裁决）**：新增 `Run.description?`（仅 bash/job；来源 `tools/execute` 的 `exec.arguments.description`，**trim+空白折叠+单行+≤200 字符（代码点，UTF-8 安全）**，空/非字符串→缺省；计入 Tier2 帧体积，超长走 meta 截断并置 `metaTruncated`）与 `Run.agent.roleName`（根会话=`lead`、teammate/subagent=会话树 displayName、unknown=`—`；`agent.name`/`agent.role` 保留）；UI 卡片标题优先级 **description → 命令首行**（完整命令仍在输入块/`title` 悬浮），AgentChip 主标签=roleName、会话 chip 仍用 `agent.name`，搜索覆盖 description+roleName；§11.2 **保持 53 键**（`runTitle` 为内部函数未导出）；ui-spec 升 v10（A39–A41）。 |
-| v12.1 | 2026-10-26 | **（微）浮层 fixed 定位（纯展示层）**：工具栏「会话范围」下拉/行菜单等浮层统一 `position:fixed`（脱离父容器 `overflow:hidden`）、按锚点 rect 定位 + 视口内夹取 + `max-height` + Esc/外部点击关闭 + 滚动/resize 跟随；**无协议/数据变更，冻结表 53 键不变**；ui-spec v10.1（A42）。 |
+| v12.1 | 2026-10-26 | **（微）浮层 fixed 定位（纯展示层）**：工具栏「会话范围」下拉/行菜单等浮层统一 `position:fixed`（脱离父容器 `overflow:hidden`）、按锚点 rect 定位 + 视口内夹取 + `max-height` + Esc/外部点击关闭 + 滚动/resize 跟随；**无协议/数据变更，冻结表 53 键不变**；ui-spec v10.1（A42）。 | **v12.2（微）**：移除动画改为 **ghost 绝对浮层 + 单次 FLIP**（ghost 不占 grid 槽位；180ms 浮层移除不触发二次重排；在飞 computed transform 合并；同帧 ≤8 淡出、>8 直接移除）；纯展示层，协议/数据模型不变，§11.2 **53 键不变**；ui-spec v10.2（A43/A44）。
+| v12.2 | 2026-10-27 | **（微）移除动画 = ghost 绝对浮层 + 单次 FLIP（纯展示层）**：ghost 改 `position:absolute` 浮层（不占 grid 槽位，`pointer-events:none`/`z-index:5`/`aria-hidden`，180ms fade+scale）；一次移除只发生一次布局变化 → 一次 FLIP 200ms；180ms 后移除浮层不改布局、不再 arm/清 transform；FLIP 用 offset 布局坐标，在飞动画用 computed transform 合并；同帧 ≤8 张淡出、>8 直接移除；reduced-motion 瞬时。**作废 v10「ghost 占槽位 + signature 含 exitingKey + 两次重排」**；协议/数据模型不变，§11.2 53 键不变；ui-spec v10.2（A43/A44）。 |
 
 **v2 对 v1 的事实核对结果**：§2 每张表带「scout 复核」列，逐条标 `已核对` / `修正` / `新增` / `无变化`。凡 v1 写错的地方（`host.call`、`styles.insert`、前台 bash 实时输出、`terminals.read` 字节游标、`immediately` 语义）均已在正文改正，不再保留 v1 表述。
 
@@ -188,7 +189,7 @@ waterfall 约束：`tools/execute` 监听器必须 `return await next()`，只�
 | 失效 | 超 TTL / LRU 淘汰 / 会话删除 或 `removed` 清空；**`retryToken` 变化不得清空 view**（只重连，不丢本地状态） |
 | 清理 | React 卸载清定时器但保留缓存；插件卸载清整个 Map |
 
-#### 8.3 Run 展示三态（**替换** v7「新终态自动展开分组」）
+#### 8.3 Run 展示三态（**替换** v7「新终态自动展开分组」；其中动画细节由 v12.2 §6.10 修订：ghost 绝对浮层/单次 FLIP）
 
 ```text
 running ──终态──► linger（3s 滞留：倒计时 + 「收起」按钮；hover/focus 暂停）
@@ -1046,13 +1047,15 @@ running ──终态──► linger ──(3s 到期 | 点「收起」)──�
 - **已完成行不再渲染** 10s 倒计时/进度条（`collapse.in`/`tp-countdown`/`tp-progress`；**v7 历史值，已废弃、不生效**），不复用 `column.collapse`；样式/词典**暂留（测试兼容）**。`removed`/`clearCompleted`/筛选变化后 `expandedIds` 裁剪为仍存在的 runId。
 - v7 真因（供回归断言）：旧 `CompletedRow` 用 `collapseVisual(column.collapse)`，`toggleRow` 在 column 缺失时 `return` → 点不开 + 仍显示「10s 后收起」（**v7 历史值，不生效**）。
 
-### 6.10 重排动效：同步 ghost + FLIP（v10，替换 v8/v9 晚一帧 ghost）
+### 6.10 重排动效：ghost 绝对浮层 + 单次 FLIP（v12.2，替换 v10「占位 ghost + 两次重排」）
 
-- **ghost 同步派生**：退场卡在**同一 render 内**由 `previousActive` 与当前 `activeIds` 差集生成（不 `setState`、不依赖 passive effect），按移除前 `orderIndex` **插回原网格槽位**；`gridItems = active + ghosts`，同 id 去重且 **active 优先**。
-- **移除**：ghost 保留 180ms（fade+scale）后从 `exitingRef` 删除并触发一次重渲染；其余卡片 FLIP 200ms（仅 `transform`/`opacity`）补位。
-- **测量与触发**：FLIP 测量集合 = `gridItems` 全量（含 ghost 占位）；`render` 只写 `layoutSignatureRef = activeKey + '|' + exitingKey`，在 `useLayoutEffect` 内与 `lastSignatureRef` 比较（等价 pendingFlip arm）；**signature 不含 gridWidth** → 250ms 轮询/滚动条抖动不重复触发；宽度变化不触发 FLIP。
-- **保护**：`dragRef` 拖动中不 arm FLIP；同帧移除 **>2 张**跳过 fade（多 ghost 同槽排序不稳）；`prefers-reduced-motion: reduce` 无 ghost 占位、无 FLIP（瞬时）。
-- **已知边界**：ghost 只保留 180ms，多卡同时退场时超出 2 张不做 fade（避免长时间占位/排序抖动）。
+- **ghost 绝对浮层（不占槽位）**：网格容器 `.tp-strip-track` 设 `position:relative`；退场卡渲染为 `position:absolute` 浮层（`pointer-events:none`、`z-index:5`、`aria-hidden="true"`、`will-change:opacity,transform`），坐标取移除前 `readLayoutRect(el)`（`offsetLeft/offsetTop/offsetWidth/offsetHeight` 布局坐标，不用 `getBoundingClientRect` 以免被在飞 transform 污染）；若移除瞬间该卡仍在 FLIP 中，用 `readTranslate(el)` 把当前视觉位移并入坐标，避免浮层跳位。
+- **一次移除 = 一次布局变化 = 一次 FLIP**：active 卡从 grid 移除只引发一次重排 → `useLayoutEffect` 内对仍 active 的卡做一次 FLIP 200ms（仅 `transform`/`opacity`）。180ms 后删除浮层**不改变 grid 布局**，因此不再触发 FLIP / 不再清 transform → 不会出现 180ms（<200ms）重叠导致的二次 FLIP 回弹。
+- **测量与签名**：FLIP 测量集合 = 仍 active 的卡（**不含 ghost**）；signature = `activeKey + '@' + gridWidth + '@' + cardWidth`（ghost 绝对层不参与布局，**不含 exitingKey**）。
+- **在飞合并**：若元素仍在上一轮 FLIP（`dataset.tpFlip==='1'`），用 `readTranslate`（computed transform 矩阵解析）取当前位移并入新 delta（`T_start = prev−next + T_current`）；解析失败则**瞬时到位**（清 transition/transform 再测），不叠加动画。
+- **多卡阈值**：同帧移除 **≤8 张**同时淡出（绝对层多浮层不引起额外布局）；**>8 张直接移除**（仍只有一次布局变化，避免浮层过多/同区叠放）。`dragRef` 拖动中不 arm FLIP；`prefers-reduced-motion: reduce` 无 ghost、无 FLIP（瞬时）。
+- **作废语义（v10 起不再使用）**：① ghost 占原 grid 槽位并插入 `gridItems`；② `layoutSignatureRef` 含 `exitingKey`；③ FLIP 测量含 ghost；④ 同帧 >2 张跳过 fade。以上会在 t=180ms 浮层移除时造成**第二次布局变化 + 第二次 FLIP**（180<200 必重叠）→ 视觉回弹；v12.2 全部替换。
+- 历史 v8/v9 的「fade+FLIP 补位」条目保留在版本记录中，但其「晚一帧 ghost / 占位 ghost」实现已被 v10→v12.2 连续替换。
 
 ### 6.11 跨会话帧防御与切会话清理（v11，客户端纵深防御）
 
@@ -1453,7 +1456,7 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 | R13 | **状态色板**：进行中=黄 `--dsw-alias-state-warn-primary`、已完成=绿 `--dsw-alias-state-success-primary`、失败=红 `--dsw-alias-state-error-primary`；hover/focus 不改布局尺寸 | 真机：状态靠颜色不可辨、hover 抖动 | ui-spec v7 §2.1/§2.2 + §9 A24；tester 静态断言边框色令牌 + 无尺寸变化 |
 | R14 | **树外 owner 不由 tier1 排除**：Agent 解析 = `scopes ∪ store terminal ownerSessionId`；命中即清 notice、`meta-only→live` | 真机 TERM 全部 meta-only，根因 owner 在树外（scout T42） | §5.2/§7.2/§9.4；tester mock 树外 owner live 用例 + diagnostics.terminalOwners |
 | R15 | **网格 `auto-fill` 统一列宽**：所有卡等宽、整行铺满、**最后一行单卡不拉伸**；拖右缘 = 统一 `--tp-card-w`（280–640），不再支持每卡独立宽；**禁 auto-fit** | 真机：卡片宽窄不齐、最后一行被拉满；每卡独立宽难对齐 | ui-spec v8 §2.1/§9 A31；tester 静态断言 grid/auto-fill/gap/align-content + 拖拽写统一值 |
-| R16 | **重排动效 = 渲染期同步 ghost + 插回原槽位**（替换 v8/v9 晚一帧 ghost） | 真机：点收起卡片瞬移/二次反向重排；晚一帧 ghost 把退场卡推末尾 | ui-spec v8 §3/§9 A32；tester 断言 ghost 同步派生/原 index/FLIP 含 ghost/signature 不含 gridWidth |
+| R16 | ~~重排动效 = 渲染期同步 ghost + 插回原槽位~~ **v12.2 修订**：ghost 改**绝对浮层不占槽位**、单次 FLIP、在飞合并、同帧 ≤8（见 §6.10） | 真机复现：占位 ghost 在 180ms 移除时引发第二次布局变化 + 第二次 FLIP（180<200 重叠）→ 卡片回弹/二次跳动 | ui-spec v10.2 §3/A43/A44；tester 断言 ghost 绝对定位/不占位/不出现在 grid items 签名 |
 | R17 | **terminal owner 政策收紧（P0 会话隔离）**：tier1 只允许**会话树 ids**；**v9「树外 owner 升级 live」作废**；树外 owner 不展示/不解析，计 `droppedForeignRuns`；可靠血缘放开为 v12 未来项（当前未实现） | P0：v9 的 union 会让 store 全量 owner 进入本会话帧，造成跨会话泄漏；且真机 A/B 会话互相看到 runs | §9.4/§14.6；`tests/host/v9-owner.test.mjs` 3 条 A27 按 v11 改写（Lead 批准，report §16.2）；`tests/host/v11-isolation.test.mjs` 7 条 |
 
 ---
@@ -1491,6 +1494,7 @@ const { mergePoll, clampColumnWidth } = mod.__internals
 - [ ] **v11 terminal owner 收紧**：`terminalScopes` = 会话树；树外 owner 不展示/不读；`knownSessionIds` 只清理「本 root 曾见并离开」；诊断 `droppedForeignRuns/terminalScopes` 可核对。
 - [ ] **v11 客户端防御**：异会话帧整帧丢弃（限流 warn 一次）；`mergePoll` 不跨会话改写 `view.sessionId`；缓存 key 含 `v11-1` 且 restore sanitize；切会话清 ghost/timers/FLIP/undo/armed/drag/最大化。
 - [ ] **v11 诊断**：`frameSessionId/allowedSessions/scopedRuns/droppedForeignRuns/removedSent` 每帧必带，`removedSent === frame.removed.length`。
+- [ ] **v12.2 移除动画**：ghost 为绝对浮层不占 grid 槽位；180ms 移除不触发第二次布局/FLIP；FLIP 测量用 offset 坐标、在飞用 computed transform 合并；同帧 ≤8 淡出、>8 直接移除；reduced-motion 瞬时；signature = `activeKey@gridWidth@cardWidth`（不含 ghost/exitingKey）。
 - [ ] **v12 `Run.description`**：仅 bash/job；来源 `exec.arguments.description`；trim+空白折叠+单行+≤200 代码点；空/非字符串缺省；计入 Tier2；超长置 `metaTruncated`。
 - [ ] **v12 `agent.roleName`**：root=`lead`、teammate/subagent=displayName、unknown=`—`；`agent.name`（会话标题）与 `agent.role` 保留。
 - [ ] **v12 标题/搜索**：标题优先 description → 命令首行（完整命令在输入块/悬浮）；chip 主标签=roleName；搜索覆盖 description+roleName。

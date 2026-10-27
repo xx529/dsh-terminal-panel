@@ -425,3 +425,30 @@ A34 A/B 真机互不可见、A35 切回 A 数据完整、A36 迟到帧不闪、A
 
 - 定位/翻转/夹取/关闭阈值与 T74 交接一致；toolbar 裁剪约束保留；行菜单未被误改；`__internals` 53 键与 v12 全部回归绿。
 
+## 20. v10.2 增量：ghost 绝对浮层 + 单次 FLIP（T87，ui-spec A43/A44）
+
+> 触发：单卡消失出现两次重排（t=0 FLIP；t=180 ghost 移除 → 清 transform 再 FLIP → 回弹）→ T86 改为 ghost 绝对浮层 + 单次 FLIP。
+> 基线：`393 tests / 91 smoke`（v10.1）→ **400 tests / 400 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**。
+
+### 20.1 新增用例（7 个）
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/client/ghost-flip.test.mjs` | 7 | 静态：`.tp-strip-track{position:relative}`、`.tp-ghost{position:absolute;pointer-events:none;z-index:5}`、`readLayoutRect` 用 offset 系列、FLIP 测量路径不用 `getBoundingClientRect` 计算 rect、签名 `activeKey@gridWidth@cardWidth`（不含 exitingKey，排除注释旧写法）、阈值 `>8`、reduced-motion 短路；mini 渲染：移除中间卡 → ghost 首帧 absolute + 移除前 rect（left 364/top 0/352×342）+ `aria-hidden`、**FLIP 恰好 1 次**（translate(-364,0)）；**180ms 后 ghost 移除 → FLIP 增量=0、active 布局 rect 不变**；连续移除（<200ms）ghost 并存、**无正向大 delta 回弹**；同帧 4 张 → 4 ghost、布局一次；同帧 9 张 → ghost 0（>8 直接移除）；reduced-motion → ghost 0 / FLIP 0 |
+| `tests/helpers/mini-panel.mjs`（扩展） | — | 增加 offset 布局 rect（`rig.layout`）、可控 fake 定时器（`advance(ms)`）、style transform 写入计数（`rig.metrics.flipWrites`）、`setView` 驱动移除；保持默认只跑 Toolbar effect（FLIP 用例通过 `effectFilter` 放行 ghost/FLIP 相关 effect），确保测试进程不遗留 RPC timer |
+
+### 20.2 方法与限制（如实标注）
+
+- frontend 未新增可导出纯函数（`__internals` 保持 **53 键**）；用「静态断言 + mini 渲染实际 inline style/FLIP 写入/定时推进」覆盖。
+- mini 渲染器不实现真实浏览器布局：布局 rect 由 rig 注入，`requestAnimationFrame` 同步执行（用于观测「一次 translate 写入」）；它验证的是「计算 → inline style/写入次数/定时推进」，不能替代真机 Performance 录制（A43/A44 仍 Unverified）。
+- FLIP 用例只放行 ghost/FLIP 相关 effect（跳过轮询），属测试收敛手段，非产品行为差异；真实 effect 由既有全量/装配测试覆盖。
+
+### 20.3 覆盖映射位置
+
+- ui-spec v10.2 **A43/A44** ↔ 用例：`docs/testing/acceptance-matrix.md` **§19**。
+- 真机项：Performance 一次 layout shift、慢放观察无回弹、多卡淡出观感、reduced-motion 真机行为，仍 Unverified。
+
+### 20.4 未发现实现缺陷
+
+- 移除中间卡/连续移除/4 与 9 张阈值/reduced-motion 行为与 T86 交接一致；ghost 不占槽位、180ms 移除不再触发 FLIP、签名不含 exitingKey 均通过断言；`__internals` 53 键与 v10.1 全部回归绿。
+

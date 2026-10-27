@@ -288,3 +288,10 @@ node tests/e2e/smoke.mjs
 |---|---|---|---|---|
 | A42 | 浮层 fixed 定位不裁剪：完整可见/可勾选/不越界（翻转·夹取）/滚动·resize 不跑飞/Esc·外点关闭；行菜单 fixed 未回归 | auto（静态 + mini 渲染）+ manual | `client/scope-menu.test.mjs`：静态样式/源码级定位规则；mini 渲染 `top/left/width/maxHeight`、右侧溢出右对齐、窄视口左夹 8px、近底部翻转、矮视口 maxHeight、无空间关闭、Esc/外点/内部点击、resize·scroll 重算、`aria-checked` 立即更新；行菜单 `.tp-menu-fixed`/`.tp-menu` 静态未回归 | 静态/渲染 **PASS**；真机窗口拉窄/贴边/滚动 **Unverified** |
 
+## 19. ui-spec v10.2 A43/A44 映射（单次 FLIP / ghost 浮层 / 多卡阈值）
+
+| # | 条目 | 方式 | 用例/证据 | 状态 |
+|---|---|---|---|---|
+| A43 | 单次 FLIP/无回弹：其余卡只滑一次、无二次跳动；ghost 绝对浮层不占槽位 | auto（静态 + mini 渲染）+ manual | `client/ghost-flip.test.mjs::A43 静态…`（readLayoutRect/签名/容器/ghost 样式）；`A43 移除中间卡…`（ghost absolute + 移除前 rect + aria-hidden、FLIP=1）；`A43 180ms 后 ghost 移除…`（FLIP 增量=0、active rect 不变）；`A44 连续移除…`（无回弹正 delta） | 静态/渲染 **PASS**；真机 Performance/慢放 **Unverified** |
+| A44 | 同帧 ≤8 淡出且布局只变一次；>8 直接移除；reduced-motion 无 ghost/无 FLIP | auto（mini 渲染 + 静态）+ manual | `client/ghost-flip.test.mjs::A44 同帧移除 4 张…`（4 ghost）、`A44 同帧移除 9 张…`（ghost 0）、`A44 reduced-motion…`（ghost 0/FLIP 0）、静态阈值 `>8` 与 reduced-motion 短路 | 渲染/静态 **PASS**；真机 **Unverified** |
+

@@ -1,8 +1,18 @@
-# 终端 · DSH 插件 UI/UX 设计规格（v10.1）
+# 终端 · DSH 插件 UI/UX 设计规格（v10.2）
 
 > 设计稿：Figma 本地文档 “Untitled” → Page「命令实况 · UI/UX 设计」
 > A `12:2` 主视图 · B `12:240` 会话范围筛选 · C `12:674` 状态与规则 · D `12:1005` Light · E `12:895` 边界状态
-> 状态：**v10.1（微：浮层 fixed 定位，契约 v12.1 对应）** — v10（任务描述/角色名展示）之上新增：工具栏「会话范围」下拉与行菜单等浮层统一 **fixed 定位**，不再被父容器 `overflow:hidden` 裁剪。**v11.1（微）**：linger 滞留 10s→3s（`LINGER_DELAY_MS=3000`）。
+> 状态：**v10.2（微：移除动画单次 FLIP，契约 v12.2 对应）** — v10.1（浮层 fixed 定位）之上：退场 ghost 改**绝对浮层不占槽位**，一次移除只允许一次布局变化/一次 FLIP，180ms 浮层移除不再触发二次重排。**v11.1（微）**：linger 滞留 10s→3s（`LINGER_DELAY_MS=3000`）。
+
+## v10.2 相对 v10.1 的变更（微版本：移除动画/重排抖动）
+
+1. **ghost 绝对浮层**：退场卡片渲染为 `position:absolute` 浮层（`pointer-events:none`、`z-index:5`、`aria-hidden`），**不占 grid 槽位**；坐标取移除前布局 rect（含在飞 FLIP 位移修正）。
+2. **一次移除只允许一次布局变化/一次 FLIP**：active 卡缩小只引发一次重排 → 一次 FLIP 200ms；180ms 后移除浮层不改变布局，**不再 arm / 清 transform**，因此无第二次 FLIP（旧实现 180<200 重叠导致回弹）。
+3. **在飞合并**：若卡仍在上一轮 FLIP 中，用 computed transform 取当前位移并入新 delta；解析失败瞬时到位。
+4. **多卡阈值**：同帧 **≤8 张**同时淡出（绝对层无额外布局）；**>8 张**直接移除；`prefers-reduced-motion` 无 ghost/无 FLIP。
+5. 纯展示层：契约/数据模型不变（contract v12.2 微记录）。
+
+## v10.1 相对 v10 的变更（微版本：浮层定位修复）
 
 ## v10.1 相对 v10 的变更（微版本：浮层定位修复）
 
@@ -171,6 +181,7 @@
 32. **角色 chip（v10）**：chip 主标签 = `agent.roleName`（主会话 `lead`、队友/子代理显示各自名称、未知 `—`）；会话标题 `agent.name` 仍用于会话 chip；缺失 roleName 时回退 name。
 33. **搜索（v10）**：除 command/输出/显示名外，额外匹配 `description` 与 `roleName`；命中高亮规则不变。
 34. **浮层 fixed 定位（v10.1）**：会话范围下拉 / 行菜单等浮层统一 `position:fixed`（**不得**用 `absolute` 依赖父容器，父级 `overflow:hidden` 不得裁剪）。**会话范围下拉**：按锚点 `getBoundingClientRect()` 定位、**视口内夹取**（右/下越界翻转）、`max-height` 限视口内滚动、`Esc`/外部点击关闭、滚动/resize 跟随重算、`z-index ≥ 60`。**行菜单（既有）**：已 fixed + 外部点击关闭 + 右对齐简单夹取（`left ≥ 8`）；其 Esc 与视口翻转统一为后续项（当前不一致，见 A42 注）。
+35. **移除动画（v10.2）**：ghost 绝对浮层不占位；一次移除只允许**一次布局变化/一次 FLIP**（200ms）；180ms 浮层移除**不得**触发二次重排/二次 FLIP；在飞动画用 computed transform 合并；同帧 **≤8** 张淡出、**>8** 直接移除；`prefers-reduced-motion` 无 ghost/无 FLIP（瞬时）。
 
 ## 4. 筛选
 
@@ -251,7 +262,7 @@
 | A29 | 2px 状态边框（v8） | `.tp-col`/`.tp-row` 生效 `border-width:2px`（旧 1px 仅供旧测试断言）；running warn 65%、linger/completed success 60%、failed error 65% | 静态样式断言 + 真机目视（manual/Unverified） |
 | A30 | hover 视觉加粗不改尺寸（v8） | hover/focus 只含 `box-shadow: inset 0 0 0 1px`/border-color，**不含** border-width/width/height/padding；FLIP 测量无抖动 | 静态断言 + 真机（manual/Unverified） |
 | A31 | 统一卡宽/单卡不拉伸（v8） | grid `auto-fill` 所有卡等宽；最后一行单卡保持列宽、不拉伸；拖右缘改统一 `--tp-card-w`（280–640）；容器 <716px 单列单卡占满 | 静态断言 + 真机（manual/Unverified） |
-| A32 | 收起只发生一次 layout shift + 平滑滑动（v8） | 点「收起」后退场卡原位淡出（180ms），其余卡 FLIP 200ms 平滑补位；无二次反向重排/卡片瞬移；同帧 >2 张跳过 fade | 交互（manual/Unverified） |
+| A32 | 收起只发生一次 layout shift + 平滑滑动（v8；**v10.2 修订**：ghost 绝对浮层/单次 FLIP，见 A43/A44） | 点「收起」后退场卡原位淡出（180ms），其余卡 FLIP 200ms 平滑补位；无二次反向重排/卡片瞬移；同帧 >2 张跳过 fade（**阈值已被 v10.2 的 >8 替换**） | 交互（manual/Unverified） |
 | A33 | reduced-motion 瞬时（v8） | `prefers-reduced-motion: reduce` 下无 ghost 占位、无 FLIP/fade（瞬时） | 静态/逻辑断言 + 真机（manual/Unverified） |
 | A34 | 会话互不可见（v9 P0） | 会话 A 面板不出现 B 的 Run/terminal/removed；A 帧 `scopedRuns` 只含 A 树、`droppedForeignRuns` 不含 B 内容 | Host 用例 `v11-isolation` + 真机双会话（manual/Unverified） |
 | A35 | 切回 A 数据完整（v9 P0） | A→B→A 后 A 首屏完整；B 不消费 A 增量、不 prune/removed A 数据；切回清瞬时态后恢复缓存+resync | 缓存/隔离用例 + 真机（manual/Unverified） |
@@ -262,3 +273,5 @@
 | A40 | 角色 chip（v10） | 主会话 chip 主标签=`lead`；队友/子代理显示各自名称；未知=`—`；会话标题仍用于会话 chip | Host/client 用例 + 真机（manual/Unverified） |
 | A41 | 搜索命中 description/角色名（v10） | 搜索词可命中 `description` 与 `agent.roleName`（高亮、即时过滤） | 纯函数搜索用例 + 真机（manual/Unverified） |
 | A42 | 浮层 fixed 定位不裁剪（v10.1） | **会话范围下拉**：打开后完整可见、可逐项勾选、不被工具栏/列表裁剪；靠右/靠下/窄窗口不越界（翻转/夹取）；滚动/resize 不跑飞；Esc/外部点击关闭。**行菜单**：fixed 不裁剪 + 外部点击关闭（Esc/视口翻转未覆盖，后续项） | 真机（manual/Unverified）：窗口拉窄/贴边/滚动时打开下拉 |
+| A43 | 单次 FLIP/无回弹（v10.2） | 点「收起」/卡片移入已完成时，其余卡片**只滑动一次**，无回弹/二次跳动；DevTools Performance 一次移除只有 **1 次 layout shift**；ghost 为绝对浮层不占槽位 | 真机（manual/Unverified）：Performance 录制 + 慢放观察；静态断言 `.tp-ghost{position:absolute}` |
+| A44 | 多卡淡出阈值/降级（v10.2） | 同帧 ≤8 张卡同时淡出且布局只变化一次；>8 张直接移除（无 fade）；`prefers-reduced-motion` 下无 ghost/无 FLIP（瞬时） | 真机（manual/Unverified）+ 静态断言阈值/`prefers-reduced-motion` 分支 |

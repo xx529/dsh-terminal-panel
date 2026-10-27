@@ -45,7 +45,7 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 │   └── e2e/smoke.mjs             #   端到端冒烟脚本（可独立运行）
 ├── scripts/smoke-host.mjs        # Host mock ctx 冒烟（91 checks）
 ├── docs/
-│   ├── design/ui-spec.md         # v10.1 设计规格（验收基线）
+│   ├── design/ui-spec.md         # v10.2 设计规格（验收基线）
 │   ├── architecture/contract.md  # **唯一契约来源（v12）**
 │   ├── research/dsh-plugin-apis.md # scout T1 平台取证（事实来源）
 │   ├── research/terminal-panel-followup-2026-10-26.md # v7 真机缺陷取证（若存在）
@@ -59,14 +59,14 @@ DSH（DeepSeek Harness）双端插件 `dsh-terminal-panel`（`package.json` vers
 
 ```bash
 npm run check      # node --check lib/index.js && node --check lib/client.js
-npm test           # node --test "tests/**/*.test.mjs" → 382 tests / 382 pass
+npm test           # node --test "tests/**/*.test.mjs" → 400 tests / 400 pass
 npm run smoke      # node scripts/smoke-host.mjs → 91/91 checks，exit 0
 npm run verify     # check → test → smoke（当前 exit 0）
 node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 ```
 
 **门禁：任何改动后必须跑 `npm run verify` 并通过（exit 0）。** 不依赖网络、不装依赖。
-当前基线：**382 tests / 382 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（实测，2026-10-26）。
+当前基线：**400 tests / 400 pass / 0 fail / 0 skip / 0 todo；smoke 91/91；`npm run verify` exit 0**（实测，2026-10-27）。
 
 ## 4. 硬约束（摘自 contract v12，违反即缺陷）
 
@@ -99,7 +99,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 27. **terminal owner 收紧（v11，替换 v9）**：tier1 Agent 解析**严格等于会话树 `scopes`**；**v9「树外 owner 升级 live」作废**；树外 owner 的 terminal 不展示/不解析（计 `diagnostics.droppedForeignRuns`），`knownSessionIds` 只清理「本 root 曾见并离开」的 terminal；`diagnostics.agentsService/agentsProbe/terminalOwners/terminalScopes` 每帧必带（contract §9.4/§14.4）。
 28. **2px 状态边框（v10）**：`.tp-col`/`.tp-row` **生效 `border-width:2px`**（旧 1px 字符串仅供 v8/v9 测试断言，文档/验收以 2px 为准）；running warn 65%、linger/completed success 60%、failed error 65%。
 29. **hover/focus 只视觉加粗（v10）**：`border-color`→92% + `box-shadow: inset 0 0 0 1px`，**不得改 `border-width`/`width`/`height`/`padding`**（FLIP 测量不抖）。
-30. **同步 ghost + FLIP（v10）**：退场卡**渲染期同步派生**并按原 `orderIndex` 插回槽位（非 passive effect 晚一帧）；180ms 淡出后移除，其余卡 FLIP 200ms（仅 transform/opacity）；测量集合含 ghost；`layoutSignatureRef=activeKey|exitingKey`（不含 gridWidth）在 `useLayoutEffect` 比较；同帧移除 >2 张跳过 fade；reduced-motion 瞬时（contract §6.10/§12.12 R16）。
+30. **移除动画（v12.2，替换 v10 占位 ghost）**：退场 ghost 为**绝对浮层不占 grid 槽位**（`position:absolute`/`pointer-events:none`/`z-index:5`/`aria-hidden`，180ms fade）；一次移除只允许**一次布局变化/一次 FLIP**（200ms），180ms 移除浮层不得再触发 FLIP；测量用 `offset` 布局坐标、在飞用 computed transform 合并；signature=`activeKey@gridWidth@cardWidth`（不含 ghost）；同帧 **≤8** 淡出、**>8** 直接移除；reduced-motion 无 ghost/无 FLIP（contract §6.10/§12.12 R16）。
 31. **会话隔离（v11，P0）**：**任何帧/存储操作必须 session-scoped，禁止全局选择**——帧选择/增量消费/removed/prune/resync/客户端游标一律传 `sessionIds`（会话树 root+子代理+队友）；`drainRemoved(sessionIds)` 按 owner 取且保留其它会话；`prune` 每会话配额、异会话全量跳过；`resync` 只重置本会话；客户端异会话帧整帧丢弃 + `mergePoll` 不跨会话改写 + 缓存 key 含 `v11-1` 且 sanitize + 切会话清瞬时态（contract §14/§6.11）。
 32. **标题优先级（v12）**：卡片/已完成行标题 = `Run.description`（bash/job 工具描述，单行 ≤200 字符）→ 命令第一条非空行；**完整命令仍在输入块与 `title` 悬浮**（悬浮=description+完整 command）；禁止把完整命令塞进标题行。
 33. **角色名 chip（v12）**：`agent.roleName` 用于 chip 主标签——root=`lead`、teammate/subagent=会话树 displayName、unknown=`—`；`agent.name`（会话标题）仍用于会话 chip；搜索覆盖 `description`+`roleName`（contract §5.1/§12.2/§12.3）。
@@ -116,7 +116,7 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 8. **真机 5 项缺陷已代码侧修复，并随 v0.1.0 由用户口头确认整体可用**（2026-10-26；逐条 manual 证据仍缺，对外宣称前需补证）。
 9. **v8 展示层行为变更（不是缺陷）**：执行区横向滑动/溢出按钮已废弃（改网格换行）；终态不再自动展开已完成分组（改 linger 3s + 收起按钮；v8 原 10s，v11.1 起 3s）；切 tab 依赖会话缓存（LRU 4/TTL 30min，第 5 个会话不保证首屏不空）。
 10. **v9 行为变更（不是缺陷）**：已完成行改为独立展开且**无倒计时**；执行区改为按行铺满（不再固定 352）；状态色为黄/绿/红；树外 owner 的 terminal 可升级 live（未命中仍 meta-only + notice）。
-11. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（**最后一行单卡不拉伸**；容器 <716px 单列单卡占满）；拖右缘只调统一列宽、不再支持每卡独立宽；重排改为同步 ghost + FLIP。
+11. **v10 行为变更（不是缺陷）**：状态边框生效 2px；执行区改 CSS grid 统一列宽（**最后一行单卡不拉伸**；容器 <716px 单列单卡占满）；拖右缘只调统一列宽、不再支持每卡独立宽；重排改为同步 ghost + FLIP（**v12.2 起改为 ghost 绝对浮层/单次 FLIP**，见规则 30）。
 12. **树外 owner 不展示（v11 收紧）**：非本会话树的 terminal owner 不再展示/解析（v9 的「升级 live」作废）；可靠血缘放开（parentSession/agentTeams membership）为 v12 未来项，当前未实现。跨会话数据由 Host 隔离兜底，客户端另有帧级校验。
 
 ## 6. 安装与发布
@@ -130,8 +130,8 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v10.1 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A42） |
-| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v12）**：集成/传输/数据模型/状态机/预算/冻结表/会话隔离/展示字段/裁决 |
+| [`docs/design/ui-spec.md`](docs/design/ui-spec.md) | v10.2 设计规格（验收基线，A–F 六板 + 可验收条目 A1–A44） |
+| [`docs/architecture/contract.md`](docs/architecture/contract.md) | **唯一契约来源（v12，含微版本 v12.2）**：集成/传输/数据模型/状态机/预算/冻结表/会话隔离/展示字段/动画/裁决 |
 | [`docs/research/dsh-plugin-apis.md`](docs/research/dsh-plugin-apis.md) | scout T1 平台取证（FACT/INF/ASSUMPTION 事实来源） |
 | [`docs/research/terminal-panel-followup-2026-10-26.md`](docs/research/terminal-panel-followup-2026-10-26.md) | v7 真机缺陷取证（terminal 可见性/agent 解析/composer 方案；若文件存在） |
 | [`docs/testing/acceptance-matrix.md`](docs/testing/acceptance-matrix.md) | 验收矩阵（ui-spec ↔ 用例） |
@@ -161,13 +161,14 @@ node tests/e2e/smoke.mjs   # 端到端冒烟（独立脚本，exit 0）
 
 ## 9. 验收基线
 
-- **代码侧已交付**：`382 tests / 382 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（实测，2026-10-26）。
+- **代码侧已交付**：`400 tests / 400 pass / 0 fail / 0 skip / 0 todo`；`smoke 91/91`；`npm run verify` exit 0（实测，2026-10-27）。
 - **v10.1（ui-spec 微）**：浮层 fixed 定位（会话范围下拉完整可见/视口夹取/Esc；A42）——代码侧已修（T74），真机复验待做。
+- **v10.2（ui-spec 微）**：移除动画 ghost 绝对浮层 + 单次 FLIP（A43/A44）——代码侧已修（T86），真机复验待做；契约微记录 v12.2，§6.10 已更新、v10 占位 ghost 语义作废。
 - **v12**：`Run.description?`（bash/job，单行 ≤200）/ `agent.roleName`（chip 主标签）/ 标题 description→命令首行 / 搜索覆盖 description+roleName——代码侧已修（T66/T67），随 v0.1.0 由用户口头确认整体可用；ui-spec v10 新增 A39–A41（manual 证据仍缺）。
 - **v11**：P0 会话隔离（帧/增量/removed/prune/resync/游标按会话树隔离）/ terminal owner 收紧（树外不展示）/ 客户端纵深防御——代码侧已交付（T57/T58）。
 - **v10**：2px 状态边框 / 统一卡宽 CSS grid（auto-fill、单卡不拉伸）/ 同步 ghost+FLIP——代码侧已交付（T52）。
 - **v9**：已完成行独立展开（无倒计时）/ 按行铺满 / 状态色板 / 树外 terminal owner 升级 live / 诊断扩展——代码侧已交付（T43/T44）。
 - **v8**：展示层（网格换行 / Run 三态 linger / 会话缓存 / FLIP+fade / 首帧 loading）+ host 一致性补丁（resync / removed-runs 互斥 / revision 回退恢复）——代码侧已交付（T37/T41）。
 - **v7 真机反馈 5 项**：terminal 记录可见 / 界面抖动 / 标题首行 / 输出含输入 / 收起时序 / composer 隐藏——代码侧已修（T31/T32），随 v0.1.0 由用户口头确认整体可用；ui-spec v5 新增 A1–A13 可验收条目（其中 A7/A8/A9/A10/A11/A12/A13 含真机/manual 项）；terminal 可见性只对**部署后新发生**的 `terminal_*` 判定（历史 pty 不可回读，不计缺陷）。
-- **v0.1.0 验收状态（2026-10-26）**：用户已**确认整体验收通过**（v12 / `fbe8586` / tag `v0.1.0`；**口头确认整体可用、未逐条提供截图/Console/Network 证据**）。ui-spec A1–A42 的逐条真机证据仍缺失（含 19 项 Unverified/manual），**对外宣称验收前需补证据**。详见 `docs/testing/integration-report.md` §15。
+- **v0.1.0 验收状态（2026-10-26）**：用户已**确认整体验收通过**（v12 / `fbe8586` / tag `v0.1.0`；**口头确认整体可用、未逐条提供截图/Console/Network 证据**）。ui-spec A1–A44 的逐条真机证据仍缺失（含 19 项 Unverified/manual），**对外宣称验收前需补证据**。详见 `docs/testing/integration-report.md` §15。
 - 发布前最小集合（集成报告 §9）：H1/M2 已修；真机 19 项 + `docs/retro` P2 已关闭；新增回归不得让 `npm run verify` 回退。
