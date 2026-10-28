@@ -2,7 +2,7 @@
 
 > 目标：把 `dsh-terminal-panel` 收录进 **Awesome DSH Plugin**（站点 <https://awesome-dsh-plugin.com/>，
 > 数据仓库 <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin>）。
-> 本目录存放**投稿内容**；实际提交动作已执行（2026-10-26），当前状态见 §10。
+> 本目录存放**投稿内容**；实际提交动作已执行（2026-10-26 提交 → 2026-10-27 合并 → 2026-10-28 收录确认），完整状态见 §10。
 
 ## 0. 一句话结论
 
@@ -161,13 +161,16 @@ console.log("problems:", JSON.stringify(problems));
 - PR 模板：<https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/.github/pull_request_template.md>
 - 本仓库安装/验证：`docs/install.md`、`README.md`
 
-## 10. 提交记录（2026-10-26）
+## 10. 提交记录（2026-10-26 提交 → 2026-10-27 合并 → 2026-10-28 收录确认）
 
 | 项 | 值 |
 |---|---|
 | 本仓库投稿提交 | `6a16d17` — `chore(deploy): awesome-dsh-plugin 投稿条目 + 商店图标`（已推 `main`） |
-| 列表仓库 PR | [#9582](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/9582)，head `xx529:add-xx529-dsh-terminal-panel`，diff 仅新增 `data/plugins/xx529__dsh-terminal-panel.yml` |
-| 分支基点 | fork `main` `4693e5a`（落后上游 `main` `a7ae7b2`；因只新增文件，PR 仍为 `MERGEABLE`） |
-| CI 预期 | 首次运行会因仓库年龄报 `repository is 0.x days old (needs 1) — nothing to do`；`regate.yml` 约每 6 小时自动重跑，**2026-10-27T04:03:40Z 之后应自动转绿**，期间不要重开/强推 |
-| 定时检查 | 每天 **23:00（Asia/Shanghai）** 检查 PR 状态 / 站点条目页 / dsh-market 索引；收录后自动删除该定时任务（schedule id `schedule-e2b0d6ad-12dc-4e50-af03-a68bcea0ff08`） |
-| 合并后 | 站点条目页 <https://awesome-dsh-plugin.com/p/xx529/dsh-terminal-panel/>；再按 §7 做可选动作（README 安装命令/徽章、可选更新条目强调 v8 网格） |
+| 列表仓库 PR | [#9582](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/9582) — **已于 2026-10-27T16:57:57Z 合并（MERGED）**；head `xx529:add-xx529-dsh-terminal-panel`，diff 仅新增 `data/plugins/xx529__dsh-terminal-panel.yml`（+7 行） |
+| 评审结论 | `check` 与 `Submission gate` 均 **SUCCESS**；无 maintainer 评论、无需修改；合并前 `mergeStateStatus=CLEAN` |
+| 分支基点 | fork `main` `4693e5a`（落后上游 `main` `a7ae7b2`；因只新增文件，PR 始终 `MERGEABLE`，未 rebase） |
+| 年龄门槛 | 首次 CI（2026-10-26T09:33Z）报 `repository is 0.2 days old (needs 1) — nothing to do`；`regate` 自动重跑后于 2026-10-27 转绿，未做任何推送/重开 |
+| 收录确认（2026-10-28 23:00） | 站点条目页 <https://awesome-dsh-plugin.com/p/xx529/dsh-terminal-panel/> **HTTP 200**（标题 `xx529/dsh-terminal-panel — dsh plugin · UI Enhancements`）；市场实时数据源 <https://awesome-dsh-plugin.com/plugins.json>（`updated: 2026-10-27`，7406 条）**含本插件记录**（name/owner/url/page/category/description） |
+| 市场可搜索性 | dsh-market 默认数据源即 `awesome-dsh-plugin.com/plugins.json`（每次打开实时拉取，见 dsh-market README「Data source」）→ 市场 Discover 搜索可命中；可选的 npm 索引 `dsh-plugin-catalog`（3730 条子集）暂未含本插件，不影响默认市场 |
+| 定时检查 | 每日 23:00 的任务在 2026-10-28 23:00 判定「已收录」，**已自动删除**（原 schedule id `schedule-e2b0d6ad-12dc-4e50-af03-a68bcea0ff08`） |
+| 后续可选 | 在本仓库 README 补安装命令/收录徽章；或按 §7 第 5 条另提小 PR，在条目描述中强调卡片网格 |
